@@ -20,7 +20,9 @@ local N_ = _.ngettext
 local T = require("ffi/util").template
 
 local Constants = require("models.constants")
+local FileUtils = require("utils.file_utils")
 local StateManager = require("core.state_manager")
+local UrlUtils = require("utils.url_utils")
 
 local DownloadManager = {}
 
@@ -58,8 +60,22 @@ end
 function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remote_url)
 	local download_dir = DownloadManager.getCurrentDownloadDir(browser)
 
-	filename = filename and filename .. "." .. filetype:lower()
-		or browser:getServerFileName(remote_url, filetype)
+	logger.warn("OPDS getLocalDownloadPath: filename_in=", filename or "(nil)",
+		"filetype=", filetype, "url=", remote_url or "(nil)")
+
+	if filename then
+		-- Decode any MIME RFC 2047 encoding before use (e.g. Komga sends
+		-- =?UTF-8?Q?T17_-_Le_domaine_des_dieux.cbz?= as title or custom name)
+		filename = UrlUtils.decodeFilename(filename)
+		-- Use ensureExtension instead of blind concatenation so we don't
+		-- double-add the extension when the decoded name already has one
+		filename = FileUtils.ensureExtension(filename, filetype)
+	else
+		filename = browser:getServerFileName(remote_url, filetype)
+	end
+
+	logger.warn("OPDS getLocalDownloadPath: filename_decoded=", filename)
+
 	filename = util.getSafeFilename(filename, download_dir)
 	filename = (download_dir ~= "/" and download_dir or "") .. '/' .. filename
 	return util.fixUtf8(filename, "_")

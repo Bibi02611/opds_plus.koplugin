@@ -154,20 +154,37 @@ end
 function FeedFetcher.getServerFileName(item_url, filetype, username, password)
 	local headers = FeedFetcher.fetchFeed(item_url, true, username, password)
 	local filename
+	local source  -- for debug logging
 
 	if headers then
-		filename = UrlUtils.parseContentDisposition(headers["content-disposition"])
+		local cd = headers["content-disposition"]
+		logger.warn("OPDS getServerFileName content-disposition:", cd or "(nil)")
+
+		filename = UrlUtils.parseContentDisposition(cd)
+		if filename then
+			source = "content-disposition"
+		end
 
 		if not filename and headers["location"] then
-			filename = headers["location"]:gsub(".*/", "")
+			-- Location may contain a MIME-encoded or URL-encoded filename in the path
+			local loc = headers["location"]
+			logger.warn("OPDS getServerFileName location:", loc)
+			local raw = loc:gsub(".*/", "")
+			filename = UrlUtils.decodeFilename(raw)
+			source = "location"
 		end
 	end
 
 	if not filename then
-		filename = UrlUtils.extractFilename(item_url)
+		filename = UrlUtils.decodeFilename(UrlUtils.extractFilename(item_url))
+		source = "url"
 	end
 
+	logger.warn("OPDS getServerFileName source=" .. (source or "?") .. " raw filename:", filename)
+
 	filename = FileUtils.ensureExtension(filename, filetype)
+
+	logger.warn("OPDS getServerFileName final:", filename)
 
 	return filename
 end

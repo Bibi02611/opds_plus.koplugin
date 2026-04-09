@@ -47,6 +47,7 @@ local StateManager = require("core.state_manager")
 
 -- Import the debug utility
 local Debug = require("utils.debug")
+local UrlUtils = require("utils.url_utils")
 
 -- Changed from Menu:extend to OPDSCoverMenu:extend to support cover images
 local OPDSBrowser = OPDSCoverMenu:extend {
@@ -477,14 +478,16 @@ end
 
 -- Helper function to get filename and set nil if using raw names
 function OPDSBrowser:getFileName(item)
-    local filename = item.title
+    local filename = UrlUtils.decodeFilename(item.title or "")
     if item.author then
-        filename = item.author .. " - " .. filename
+        filename = UrlUtils.decodeFilename(item.author) .. " - " .. filename
     end
     local filename_orig = filename
     if self.root_catalog_raw_names then
         filename = nil
     end
+    logger.warn("OPDS getFileName: title_raw=", item.title or "(nil)",
+        "decoded=", filename_orig or "(nil)")
     return util.replaceAllInvalidChars(filename), util.replaceAllInvalidChars(filename_orig)
 end
 

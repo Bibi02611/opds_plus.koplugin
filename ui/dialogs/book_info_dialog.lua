@@ -29,7 +29,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local logger = require("logger")
 local url = require("socket.url")
 local util = require("util")
-local _ = require("gettext")
+local T_get = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
@@ -47,9 +47,9 @@ local function formatAvailableFormats(acquisitions, DownloadManager)
 	for i, acquisition in ipairs(acquisitions) do
 		if acquisition.count then
 			-- PSE streaming
-			table.insert(formats, _("Stream") .. " (" .. acquisition.count .. " " .. _("pages") .. ")")
+			table.insert(formats, T_get("Stream") .. " (" .. acquisition.count .. " " .. T_get("pages") .. ")")
 		elseif acquisition.type == "borrow" then
-			table.insert(formats, _("Borrow"))
+			table.insert(formats, T_get("Borrow"))
 		else
 			local filetype = DownloadManager.getFiletype(acquisition)
 			if filetype then
@@ -58,7 +58,7 @@ local function formatAvailableFormats(acquisitions, DownloadManager)
 		end
 	end
 	if #formats == 0 then
-		return _("None available")
+		return T_get("None available")
 	end
 	return table.concat(formats, ", ")
 end
@@ -146,14 +146,14 @@ local function showFormatSelectionDialog(browser, item, downloadable, add_to_que
 	table.insert(buttons, {})
 	table.insert(buttons, {
 		{
-			text = _("Cancel"),
+			text = T_get("Cancel"),
 			callback = function()
 				UIManager:close(browser.format_dialog)
 			end,
 		},
 	})
 
-	local title = add_to_queue and _("Select format to queue") or _("Select format to download")
+	local title = add_to_queue and T_get("Select format to queue") or T_get("Select format to download")
 
 	browser.format_dialog = ButtonDialog:new {
 		title = title,
@@ -312,14 +312,14 @@ function BookInfoDialog.build(browser, item)
 	-- Author
 	if item.author then
 		table.insert(info_parts, {
-			label = _("Author"),
+			label = T_get("Author"),
 			value = item.author,
 		})
 	end
 
 	-- Available formats
 	table.insert(info_parts, {
-		label = _("Formats"),
+		label = T_get("Formats"),
 		value = formatAvailableFormats(item.acquisitions, DownloadManager),
 	})
 
@@ -359,7 +359,7 @@ function BookInfoDialog.build(browser, item)
 	end
 
 	-- Description section
-	local description_text = _("No description available.")
+	local description_text = T_get("No description available.")
 	if item.content and type(item.content) == "string" then
 		description_text = util.htmlToPlainTextIfHtml(item.content)
 	end
@@ -380,7 +380,7 @@ function BookInfoDialog.build(browser, item)
 			align = "left",
 			VerticalSpan:new { height = Size.padding.small },
 			TextBoxWidget:new {
-				text = TextBoxWidget.PTF_HEADER .. TextBoxWidget.PTF_BOLD_START .. _("Description") .. TextBoxWidget.PTF_BOLD_END,
+				text = TextBoxWidget.PTF_HEADER .. TextBoxWidget.PTF_BOLD_START .. T_get("Description") .. TextBoxWidget.PTF_BOLD_END,
 				width = dialog_width - Size.padding.large * 4,
 				face = Font:getFace("x_smallinfofont"),
 			},
@@ -401,7 +401,7 @@ function BookInfoDialog.build(browser, item)
 	if pse_acquisition then
 		local stream_row = {
 			{
-				text = Constants.ICONS.STREAM_START .. " " .. _("Stream"),
+				text = Constants.ICONS.STREAM_START .. " " .. T_get("Stream"),
 				callback = function()
 					UIManager:close(browser.book_info_dialog)
 					OPDSPSE:streamPages(pse_acquisition.href, pse_acquisition.count, false,
@@ -409,7 +409,7 @@ function BookInfoDialog.build(browser, item)
 				end,
 			},
 			{
-				text = _("Stream from page") .. " " .. Constants.ICONS.STREAM_NEXT,
+				text = T_get("Stream from page") .. " " .. Constants.ICONS.STREAM_NEXT,
 				callback = function()
 					UIManager:close(browser.book_info_dialog)
 					OPDSPSE:streamPages(pse_acquisition.href, pse_acquisition.count, true,
@@ -421,7 +421,7 @@ function BookInfoDialog.build(browser, item)
 		if pse_acquisition.last_read then
 			table.insert(buttons_table, stream_row)
 			table.insert(buttons_table, {
-				text = Constants.ICONS.STREAM_RESUME .. " " .. _("Resume") .. " (" .. pse_acquisition.last_read .. ")",
+				text = Constants.ICONS.STREAM_RESUME .. " " .. T_get("Resume") .. " (" .. pse_acquisition.last_read .. ")",
 				callback = function()
 					UIManager:close(browser.book_info_dialog)
 					OPDSPSE:streamPages(pse_acquisition.href, pse_acquisition.count, false,
@@ -442,7 +442,7 @@ function BookInfoDialog.build(browser, item)
 		if #downloadable == 1 then
 			local dl = downloadable[1]
 			table.insert(action_row, {
-				text = Constants.ICONS.DOWNLOAD .. " " .. _("Download") .. " (" .. string.upper(dl.filetype) .. ")",
+				text = Constants.ICONS.DOWNLOAD .. " " .. T_get("Download") .. " (" .. string.upper(dl.filetype) .. ")",
 				callback = function()
 					-- Capture filename BEFORE closing dialog
 					local filename = browser._custom_filename
@@ -456,7 +456,7 @@ function BookInfoDialog.build(browser, item)
 			})
 		else
 			table.insert(action_row, {
-				text = Constants.ICONS.DOWNLOAD .. " " .. _("Download…"),
+				text = Constants.ICONS.DOWNLOAD .. " " .. T_get("Download…"),
 				callback = function()
 					showFormatSelectionDialog(browser, item, downloadable, false, browser.book_info_dialog)
 				end,
@@ -467,7 +467,7 @@ function BookInfoDialog.build(browser, item)
 		if #downloadable == 1 then
 			local dl = downloadable[1]
 			table.insert(action_row, {
-				text = "+" .. " " .. _("Queue"),
+				text = "+" .. " " .. T_get("Queue"),
 				callback = function()
 					-- Capture filename BEFORE closing dialog
 					local filename = browser._custom_filename
@@ -486,7 +486,7 @@ function BookInfoDialog.build(browser, item)
 			})
 		else
 			table.insert(action_row, {
-				text = "+" .. " " .. _("Queue…"),
+				text = "+" .. " " .. T_get("Queue…"),
 				callback = function()
 					showFormatSelectionDialog(browser, item, downloadable, true, browser.book_info_dialog)
 				end,
@@ -502,14 +502,14 @@ function BookInfoDialog.build(browser, item)
 	-- View full cover button (only if cover exists)
 	if cover_link then
 		table.insert(options_row, {
-			text = _("Full Cover"),
+			text = T_get("Full Cover"),
 			callback = showFullCover,
 		})
 	end
 
 	-- Download options button
 	table.insert(options_row, {
-		text = _("Options…"),
+		text = T_get("Options…"),
 		callback = function()
 			BookInfoDialog.showDownloadOptionsDialog(browser, item)
 		end,
@@ -517,7 +517,7 @@ function BookInfoDialog.build(browser, item)
 
 	-- Close button
 	table.insert(options_row, {
-		text = _("Close"),
+		text = T_get("Close"),
 		callback = function()
 			UIManager:close(browser.book_info_dialog)
 		end,
@@ -548,7 +548,7 @@ function BookInfoDialog.build(browser, item)
 
 	-- Title bar
 	local title_bar = TitleBar:new {
-		title = item.title or _("Book Information"),
+		title = item.title or T_get("Book Information"),
 		fullscreen = true,
 		width = dialog_width,
 		with_bottom_line = true,
@@ -663,7 +663,7 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 	local buttons = {
 		{
 			{
-				text = _("Choose folder"),
+				text = T_get("Choose folder"),
 				callback = function()
 					UIManager:close(browser.options_dialog)
 					require("ui/downloadmgr"):new {
@@ -677,25 +677,25 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 		},
 		{
 			{
-				text = _("Change filename"),
+				text = T_get("Change filename"),
 				callback = function()
 					UIManager:close(browser.options_dialog)
 					local dialog
 					dialog = InputDialog:new {
-						title = _("Enter filename"),
+						title = T_get("Enter filename"),
 						input = current_filename,
 						input_hint = filename_orig,
 						buttons = {
 							{
 								{
-									text = _("Cancel"),
+									text = T_get("Cancel"),
 									id = "close",
 									callback = function()
 										UIManager:close(dialog)
 									end,
 								},
 								{
-									text = _("Reset"),
+									text = T_get("Reset"),
 									callback = function()
 										-- Reset to original filename
 										browser._custom_filename = filename_orig
@@ -703,7 +703,7 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 									end,
 								},
 								{
-									text = _("Set"),
+									text = T_get("Set"),
 									is_enter_default = true,
 									callback = function()
 										local new_filename = dialog:getInputText()
@@ -726,7 +726,7 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 		{}, -- separator
 		{
 			{
-				text = _("Close"),
+				text = T_get("Close"),
 				callback = function()
 					UIManager:close(browser.options_dialog)
 				end,
@@ -737,7 +737,7 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 	local current_dir = DownloadManager.getCurrentDownloadDir(browser)
 
 	browser.options_dialog = ButtonDialog:new {
-		title = T(_("Download Options\n\nFolder: %1\n\nFilename: %2"), BD.dirpath(current_dir), current_filename),
+		title = T(T_get("Download Options\n\nFolder: %1\n\nFilename: %2"), BD.dirpath(current_dir), current_filename),
 		buttons = buttons,
 	}
 	UIManager:show(browser.options_dialog)
