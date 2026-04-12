@@ -14,6 +14,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
+local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local MovableContainer = require("ui/widget/container/movablecontainer")
@@ -35,6 +36,7 @@ local T = require("ffi/util").template
 
 local Constants = require("models.constants")
 local OPDSPSE = require("services.kavita")
+local UrlUtils = require("utils.url_utils")
 
 local BookInfoDialog = {}
 
@@ -103,6 +105,8 @@ end
 -- @param parent_dialog table Parent dialog to close
 local function showFormatSelectionDialog(browser, item, downloadable, add_to_queue, parent_dialog)
 	local DownloadManager = require("core.download_manager")
+	-- Capture BEFORE any UIManager:close() — onCloseWidget clears both fields
+	local series_snapshot = browser._download_series
 	local buttons = {}
 
 	for _, dl in ipairs(downloadable) do
@@ -111,14 +115,16 @@ local function showFormatSelectionDialog(browser, item, downloadable, add_to_que
 			{
 				text = text,
 				callback = function()
-					-- IMPORTANT: Capture filename BEFORE closing dialogs
-					-- because onCloseWidget clears browser._custom_filename
+					-- IMPORTANT: Capture BEFORE closing — onCloseWidget clears these fields
 					local filename = browser._custom_filename
 
 					UIManager:close(browser.format_dialog)
 					if parent_dialog then
 						UIManager:close(parent_dialog)
 					end
+
+					-- Restore series after onCloseWidget cleared it
+					browser._download_series = series_snapshot
 
 					local local_path = DownloadManager.getLocalDownloadPath(
 						browser, filename, dl.filetype, dl.acquisition.href)
@@ -131,6 +137,10 @@ local function showFormatSelectionDialog(browser, item, downloadable, add_to_que
 							catalog  = browser.root_catalog_title,
 							username = browser.root_catalog_username,
 							password = browser.root_catalog_password,
+						})
+						UIManager:show(InfoMessage:new {
+							text = T(T_get("Added to queue:\n%1"), item.title or T_get("Unknown")),
+							timeout = 2,
 						})
 					else
 						DownloadManager.checkDownloadFile(browser, local_path, dl.acquisition.href,
@@ -182,6 +192,90 @@ function BookInfoDialog.build(browser, item)
 	else
 		browser._custom_filename = browser._custom_filename or util.replaceAllInvalidChars(base_filename)
 	end
+
+	-- ── Dump item fields for Komga inspection (temporary debug) ────────────────
+	logger.warn("[OPDS Plus] ── ITEM DUMP ──")
+	for k, v in pairs(item) do
+		local tv = type(v)
+		if tv == "string" or tv == "number" or tv == "boolean" then
+			logger.warn("[OPDS Plus] ITEM DATA: " .. tostring(k) .. " = " .. tostring(v))
+		else
+			logger.warn("[OPDS Plus] ITEM DATA: " .. tostring(k) .. " = [" .. tv .. "]")
+		end
+	end
+	logger.warn("[OPDS Plus] ── FIN DUMP ──")
+
+	-- ── Series detection for subdirectory organisation ───────────────────────
+	-- Priority 1 : item.links (rel="up" / "collection") — authoritative server metadata
+	--              The server (Komga) sets the title on the parent link; this is
+	--              the true series name regardless of how the user arrived here.
+	-- Priority 2 : item.series — explicit OPDS dc:series field (when sent by server)
+	-- Priority 3 : title prefix — text before " - " or " N:" in the decoded title
+	--              (fallback for servers that don't expose navigation links)
+	-- Priority 4 : catalog_title — current navigation context, only if not a
+	--              generic collection name (Keep Reading, On Deck, etc.)
+	-- The root catalog title (server name) is never used as a series name.
+	local GENERIC_CATALOG_BLACKLIST = {
+		["Keep Reading"]    = true,
+		["On Deck"]         = true,
+		["Recently Added"]  = true,
+		["Bibliothèque"]    = true,
+	}
+
+	local raw_series = nil
+	local series_source = nil
+
+	-- Priority 1 : parent / collection links — most authoritative source
+	if item.links then
+		for _, link in ipairs(item.links) do
+			if link.title and link.title ~= "" then
+				local candidate = UrlUtils.decodeFilename(link.title)
+				if not GENERIC_CATALOG_BLACKLIST[candidate] then
+					raw_series = candidate
+					series_source = "lien parent (" .. (link.rel or "?") .. ")"
+					logger.warn("[OPDS Plus] Série identifiée via lien parent : " .. tostring(raw_series))
+					break
+				end
+			end
+		end
+	end
+
+	-- Priority 2 : explicit series field
+	if not raw_series and item.series and item.series ~= "" then
+		raw_series = item.series
+		series_source = "item.series"
+	end
+
+	-- Priority 3 : title prefix (fallback when server omits navigation links)
+	-- Pattern A: "Series - Title"   e.g. "Blacksad - Tome 01"  → "Blacksad"
+	-- Pattern B: "Series N: Title"  e.g. "Largo Winch 6: ..."  → "Largo Winch"
+	if not raw_series then
+		local decoded_title = UrlUtils.decodeFilename(item.title or "")
+		local prefix = decoded_title:match("^(.-)%s+%-%s+")
+		if not prefix or prefix == "" then
+			prefix = decoded_title:match("^(.-)%s+%d[%d%.]*%s*:")
+		end
+		if prefix and prefix ~= "" then
+			raw_series = UrlUtils.decodeFilename(prefix)
+			series_source = "titre (extraction)"
+		end
+	end
+
+	-- Priority 4 : catalog_title, only if not generic and not the root catalog
+	if not raw_series then
+		local cat = browser.catalog_title
+		if cat and cat ~= "" and cat ~= browser.root_catalog_title and not GENERIC_CATALOG_BLACKLIST[cat] then
+			raw_series = cat
+			series_source = "catalog_title"
+		end
+	end
+
+	browser._download_series = raw_series and UrlUtils.decodeFilename(raw_series) or nil
+	logger.warn("[OPDS Plus] Source du nom de dossier choisie : " .. (series_source or "(aucune)"))
+	logger.warn("[OPDS Plus] _download_series = " .. (browser._download_series or "(nil)"))
+	-- Snapshot for callbacks: onCloseWidget clears browser._download_series before
+	-- getLocalDownloadPath runs, so every download callback must restore it.
+	local series_snapshot = browser._download_series
 
 	-- Get PSE and downloadable acquisitions
 	local pse_acquisition = getPSEAcquisition(item.acquisitions)
@@ -444,9 +538,10 @@ function BookInfoDialog.build(browser, item)
 			table.insert(action_row, {
 				text = Constants.ICONS.DOWNLOAD .. " " .. T_get("Download") .. " (" .. string.upper(dl.filetype) .. ")",
 				callback = function()
-					-- Capture filename BEFORE closing dialog
+					-- Capture BEFORE closing — onCloseWidget clears these fields
 					local filename = browser._custom_filename
 					UIManager:close(browser.book_info_dialog)
+					browser._download_series = series_snapshot  -- restore after onCloseWidget
 					local local_path = DownloadManager.getLocalDownloadPath(
 						browser, filename, dl.filetype, dl.acquisition.href)
 					DownloadManager.checkDownloadFile(browser, local_path, dl.acquisition.href,
@@ -469,9 +564,11 @@ function BookInfoDialog.build(browser, item)
 			table.insert(action_row, {
 				text = "+" .. " " .. T_get("Queue"),
 				callback = function()
-					-- Capture filename BEFORE closing dialog
+					-- Capture BEFORE closing — onCloseWidget clears these fields
 					local filename = browser._custom_filename
+					local book_title = item.title or T_get("Unknown")
 					UIManager:close(browser.book_info_dialog)
+					browser._download_series = series_snapshot  -- restore after onCloseWidget
 					local local_path = DownloadManager.getLocalDownloadPath(
 						browser, filename, dl.filetype, dl.acquisition.href)
 					DownloadManager.addToDownloadQueue(browser, {
@@ -481,6 +578,10 @@ function BookInfoDialog.build(browser, item)
 						catalog  = browser.root_catalog_title,
 						username = browser.root_catalog_username,
 						password = browser.root_catalog_password,
+					})
+					UIManager:show(InfoMessage:new {
+						text = T(T_get("Added to queue:\n%1"), book_title),
+						timeout = 2,
 					})
 				end,
 			})
@@ -631,8 +732,9 @@ function BookInfoDialog.build(browser, item)
 	end
 
 	function browser.book_info_dialog:onCloseWidget()
-		-- Clean up custom filename when dialog closes
+		-- Clean up custom filename and series when dialog closes
 		browser._custom_filename = nil
+		browser._download_series = nil
 		-- Clean up our high-res dialog cover if we created one
 		if dialog_cover_bb then
 			dialog_cover_bb:free()

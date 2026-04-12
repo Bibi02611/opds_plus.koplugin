@@ -1,6 +1,7 @@
 -- File utility functions for OPDS operations
 -- Handles filename manipulation and validation
 
+local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
 
 local FileUtils = {}
@@ -18,6 +19,16 @@ function FileUtils.ensureExtension(filename, filetype)
 	end
 
 	return filename
+end
+
+--- Create a directory if it does not already exist.
+-- Checks existence first to avoid errors on systems that reject
+-- mkdir on an existing path.
+-- @param path string Absolute directory path to create
+function FileUtils.makeDirectory(path)
+	if not lfs.attributes(path) then
+		lfs.mkdir(path)
+	end
 end
 
 --- Sanitize filename for safe filesystem usage

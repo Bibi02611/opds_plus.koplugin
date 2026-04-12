@@ -53,32 +53,60 @@ end
 
 -- Build local download path for a file
 -- @param browser table OPDSBrowser instance
--- @param filename string|nil Desired filename (nil to use server filename)
--- @param filetype string File extension
--- @param remote_url string URL to download from
--- @return string Local file path
+-- @param filename string|nil Suggested filename (nil → resolved from server headers/URL)
+-- @param filetype string File extension (e.g. "cbz")
+-- @param remote_url string Acquisition URL
+-- @return string Absolute local file path
 function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remote_url)
-	local download_dir = DownloadManager.getCurrentDownloadDir(browser)
 
-	logger.warn("OPDS getLocalDownloadPath: filename_in=", filename or "(nil)",
-		"filetype=", filetype, "url=", remote_url or "(nil)")
+	-- ── Step 1 : base download directory ────────────────────────────────────
+	local base_dir = DownloadManager.getCurrentDownloadDir(browser)
 
-	if filename then
-		-- Decode any MIME RFC 2047 encoding before use (e.g. Komga sends
-		-- =?UTF-8?Q?T17_-_Le_domaine_des_dieux.cbz?= as title or custom name)
-		filename = UrlUtils.decodeFilename(filename)
-		-- Use ensureExtension instead of blind concatenation so we don't
-		-- double-add the extension when the decoded name already has one
-		filename = FileUtils.ensureExtension(filename, filetype)
+	logger.warn("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
+		" filetype=", filetype or "(nil)", " url=", remote_url or "(nil)")
+
+	-- ── Step 2 : series detection ────────────────────────────────────────────
+	-- browser._download_series is set by BookInfoDialog from item.series (OPDS
+	-- explicit field) or catalog_title (current Komga series context).
+	-- It is already decoded by UrlUtils.decodeFilename at storage time.
+	local series_name = browser._download_series
+	if series_name and series_name ~= "" then
+		-- Sanitize for filesystem (replaces chars invalid on Linux/reMarkable)
+		series_name = util.replaceAllInvalidChars(series_name)
+		logger.warn("[OPDS Plus] Dossier de série détecté : " .. series_name)
 	else
-		filename = browser:getServerFileName(remote_url, filetype)
+		series_name = nil
 	end
 
-	logger.warn("OPDS getLocalDownloadPath: filename_decoded=", filename)
+	-- ── Step 3 : filename resolution ─────────────────────────────────────────
+	local final_filename
+	if filename and filename ~= "" then
+		-- Suggested name: decode any RFC 2047 MIME words (=?UTF-8?Q?...?=)
+		-- then ensure the correct extension is present without doubling it
+		final_filename = UrlUtils.decodeFilename(filename)
+		final_filename = FileUtils.ensureExtension(final_filename, filetype)
+	else
+		-- No suggested name: resolve from server Content-Disposition / URL
+		-- getServerFileName already applies UrlUtils.decodeFilename internally
+		final_filename = browser:getServerFileName(remote_url, filetype)
+	end
 
-	filename = util.getSafeFilename(filename, download_dir)
-	filename = (download_dir ~= "/" and download_dir or "") .. '/' .. filename
-	return util.fixUtf8(filename, "_")
+	logger.warn("[OPDS Plus] getLocalDownloadPath nom résolu : " .. (final_filename or "(nil)"))
+
+	-- ── Step 4 : path construction & directory creation ──────────────────────
+	local target_dir
+	if series_name then
+		target_dir = base_dir .. "/" .. series_name
+		FileUtils.makeDirectory(target_dir)
+	else
+		target_dir = base_dir
+	end
+
+	final_filename = util.getSafeFilename(final_filename, target_dir)
+	local full_path = target_dir .. "/" .. final_filename
+	full_path = util.fixUtf8(full_path, "_")
+	logger.warn("[OPDS Plus] Chemin final de stockage : " .. full_path)
+	return full_path
 end
 
 -- Download a file from remote URL to local path

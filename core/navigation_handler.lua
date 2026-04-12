@@ -137,6 +137,19 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 						})
 					end
 
+					-- Parent / series navigation links (up or collection)
+					-- Stored for series-folder detection in BookInfoDialog
+					if link.rel == "up" or (link.rel and link.rel:find("collection", 1, true)) then
+						if link.title and link.title ~= "" then
+							if not item.links then item.links = {} end
+							table.insert(item.links, {
+								rel   = link.rel,
+								href  = link_href,
+								title = link.title,
+							})
+						end
+					end
+
 					-- Special handling for PDF links
 					if link.title == "pdf" or link.type == "application/pdf"
 						and link.rel ~= "subsection" then
