@@ -11,11 +11,40 @@
 
 # OPDS Plus - Enhanced OPDS Browser for KOReader
 
-**Version:** 1.4.0
+**Version:** 1.5.0
 
 **OPDS Plus** is a feature-rich enhancement of KOReader's built-in OPDS catalog browser, providing visual book cover displays, multiple viewing modes, and extensive customization options for browsing online book catalogs.
 
 ## ✨ Features
+
+### ✈️ Offline Catalog Archive *(New in 1.5.0)*
+
+- **"Archive for airplane mode"** button available in every catalog menu (≡), at any navigation level (server root, series list, or individual series)
+- Performs a full BFS traversal of the catalog tree: pages and sub-catalog links are followed up to 2 levels deep, pagination is always followed
+- All OPDS XML pages are written to the feed cache; all cover thumbnails are downloaded to the cover cache — the catalog is fully browsable offline
+- Up to 1000 pages per archive run (covers libraries of 20,000–50,000 books)
+- Progress dialog updated in real time (pages scanned · covers found/downloaded) with a **Cancel** button
+- **Incremental by design**: re-running the archive after a server update re-fetches XML (picks up new books) but skips already-cached covers — only new covers are downloaded
+
+### 📖 Local Reading Progress *(New in 1.5.0)*
+
+- Books already downloaded display their reading progress directly in the catalog browser
+- **List view**: a compact progress bar (8 blocks) + percentage below the author line
+- **Grid view**: percentage appended to the author/metadata line
+- Progress is read from KOReader's own `DocSettings` (`percent_finished`) — no server round-trip, works fully offline
+
+### 🔁 Automatic Series Continuation *(New in 1.5.0)*
+
+- When a downloaded book is finished (last page reached), a notification appears with the series name and the title of the next book
+- Detection is based on `dc:series` / `dc:seriesIndex` OPDS metadata — works with Komga and any OPDS server that exposes series fields
+- Next-book information is persisted across KOReader sessions (`pending_series` setting) — the notification fires even if KOReader was restarted between downloads
+
+### 🐛 Cover Lifecycle Fix *(New in 1.5.0)*
+
+- Fixed black / glitching covers after multi-page navigation in list and grid views
+- Root cause: `InputContainer.free()` was recursively freeing the cover blitbuffer held by child `ImageWidget` instances; fixed by setting `image_disposable = false` consistently in both `init()` and `update()`, and explicitly freeing the old widget before replacement
+
+---
 
 ### ✅ Already-Downloaded Badge *(New in 1.4.0)*
 
@@ -336,7 +365,9 @@ opds_plus.koplugin/
 │   ├── cover_loader.lua
 │   ├── http_client.lua
 │   ├── image_loader.lua
-│   └── kavita.lua
+│   ├── kavita.lua
+│   ├── komga_sync.lua
+│   └── offline_pack.lua
 ├── ui/
 │   ├── browser.lua
 │   ├── utils.lua
@@ -414,6 +445,12 @@ See the [LICENSE](LICENSE) file for details.
 - **OPDS Specification**: [OPDS Spec](https://specs.opds.io/)
 
 ## 🔄 Version History
+
+### v1.5.0
+- **Offline catalog archive** ("Mode avion"): full BFS traversal of the catalog tree from any level — OPDS pages and cover thumbnails cached to disk for fully offline browsing; up to 1000 pages per run; progress dialog with Cancel; incremental on re-run (skips already-cached covers)
+- **Local reading progress**: books in list and grid views show a progress bar / percentage derived from KOReader's own `DocSettings` — no network required, works offline
+- **Automatic series continuation**: notification shown when a downloaded book is finished, naming the next title in the series; persisted across restarts via `pending_series` setting
+- **Cover lifecycle fix**: black / glitching covers after multi-page navigation resolved — `image_disposable = false` set consistently in `init()` and `update()` for list and grid items; old widget explicitly freed before replacement
 
 ### v1.4.0
 - **Already-downloaded badge**: books present in the download folder are prefixed with ✓ in list view, grid view, and the book info dialog — detected via acquisition URL filename vs local `lfs.attributes` check
