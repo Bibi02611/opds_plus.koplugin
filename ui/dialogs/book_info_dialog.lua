@@ -193,18 +193,6 @@ function BookInfoDialog.build(browser, item)
 		browser._custom_filename = browser._custom_filename or util.replaceAllInvalidChars(base_filename)
 	end
 
-	-- ── Dump item fields for Komga inspection (temporary debug) ────────────────
-	logger.warn("[OPDS Plus] ── ITEM DUMP ──")
-	for k, v in pairs(item) do
-		local tv = type(v)
-		if tv == "string" or tv == "number" or tv == "boolean" then
-			logger.warn("[OPDS Plus] ITEM DATA: " .. tostring(k) .. " = " .. tostring(v))
-		else
-			logger.warn("[OPDS Plus] ITEM DATA: " .. tostring(k) .. " = [" .. tv .. "]")
-		end
-	end
-	logger.warn("[OPDS Plus] ── FIN DUMP ──")
-
 	-- ── Series detection for subdirectory organisation ───────────────────────
 	-- Priority 1 : item.links (rel="up" / "collection") — authoritative server metadata
 	--              The server (Komga) sets the title on the parent link; this is
@@ -233,7 +221,7 @@ function BookInfoDialog.build(browser, item)
 				if not GENERIC_CATALOG_BLACKLIST[candidate] then
 					raw_series = candidate
 					series_source = "lien parent (" .. (link.rel or "?") .. ")"
-					logger.warn("[OPDS Plus] Série identifiée via lien parent : " .. tostring(raw_series))
+					logger.dbg("[OPDS Plus] Série identifiée via lien parent : " .. tostring(raw_series))
 					break
 				end
 			end
@@ -271,8 +259,8 @@ function BookInfoDialog.build(browser, item)
 	end
 
 	browser._download_series = raw_series and UrlUtils.decodeFilename(raw_series) or nil
-	logger.warn("[OPDS Plus] Source du nom de dossier choisie : " .. (series_source or "(aucune)"))
-	logger.warn("[OPDS Plus] _download_series = " .. (browser._download_series or "(nil)"))
+	logger.dbg("[OPDS Plus] Source du nom de dossier choisie : " .. (series_source or "(aucune)"))
+	logger.dbg("[OPDS Plus] _download_series = " .. (browser._download_series or "(nil)"))
 	-- Snapshot for callbacks: onCloseWidget clears browser._download_series before
 	-- getLocalDownloadPath runs, so every download callback must restore it.
 	local series_snapshot = browser._download_series
@@ -611,8 +599,8 @@ function BookInfoDialog.build(browser, item)
 		local function getSubfolderLabel()
 			if browser._default_download_subfolder then
 				return browser._default_download_subfolder
-			elseif auto_series then
-				return auto_series .. " " .. T_get("(auto)")
+			elseif series_snapshot then
+				return series_snapshot .. " " .. T_get("(auto)")
 			else
 				return T_get("(none)")
 			end
@@ -635,12 +623,12 @@ function BookInfoDialog.build(browser, item)
 			{
 				text = getSubfolderLabel(),
 				callback = function()
-					local current = browser._default_download_subfolder or auto_series or ""
+					local current = browser._default_download_subfolder or series_snapshot or ""
 					local subfolder_dialog
 					subfolder_dialog = InputDialog:new {
 						title = T_get("Subfolder name"),
 						input = current,
-						input_hint = auto_series or "",
+						input_hint = series_snapshot or "",
 						buttons = {
 							{
 								{

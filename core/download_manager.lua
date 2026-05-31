@@ -67,7 +67,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	-- ── Step 1 : base download directory ────────────────────────────────────
 	local base_dir = DownloadManager.getCurrentDownloadDir(browser)
 
-	logger.warn("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
+	logger.dbg("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
 		" filetype=", filetype or "(nil)", " url=", remote_url or "(nil)")
 
 	-- ── Step 2 : series/folder detection ────────────────────────────────────────
@@ -78,7 +78,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	local series_name = browser._default_download_subfolder or browser._download_series
 	if series_name and series_name ~= "" then
 		series_name = util.replaceAllInvalidChars(series_name)
-		logger.warn("[OPDS Plus] Dossier cible : " .. series_name)
+		logger.dbg("[OPDS Plus] Dossier cible : " .. series_name)
 	else
 		series_name = nil
 	end
@@ -96,7 +96,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 		final_filename = browser:getServerFileName(remote_url, filetype)
 	end
 
-	logger.warn("[OPDS Plus] getLocalDownloadPath nom résolu : " .. (final_filename or "(nil)"))
+	logger.dbg("[OPDS Plus] getLocalDownloadPath nom résolu : " .. (final_filename or "(nil)"))
 
 	-- ── Step 4 : path construction & directory creation ──────────────────────
 	local target_dir
@@ -110,7 +110,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	final_filename = util.getSafeFilename(final_filename, target_dir)
 	local full_path = target_dir .. "/" .. final_filename
 	full_path = util.fixUtf8(full_path, "_")
-	logger.warn("[OPDS Plus] Chemin final de stockage : " .. full_path)
+	logger.dbg("[OPDS Plus] Chemin final de stockage : " .. full_path)
 	return full_path
 end
 
