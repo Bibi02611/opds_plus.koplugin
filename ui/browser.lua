@@ -182,20 +182,8 @@ function OPDSBrowser:archiveFullCatalog()
         UIManager:forceRePaint()
     end
 
-    local Device = require("device")
-
-    local function setWakeLock(enable)
-        if Device:isAndroid() then
-            local ok, android = pcall(require, "android")
-            if ok then android.setWakeLock(enable) end
-        elseif UIManager.preventSuspend then
-            if enable then UIManager:preventSuspend() else UIManager:allowSuspend() end
-        end
-    end
-
     local function startArchive()
         NetworkMgr:runWhenConnected(function()
-            setWakeLock(true)
             showProgress(_("Analyse du catalogue…"))
 
             cancel_fn = OfflinePack.start {
@@ -214,7 +202,6 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_done = function(pages, total_covers, new_covers)
-                    setWakeLock(false)
                     closeProgress()
                     UIManager:show(InfoMessage:new {
                         text = T(
@@ -225,7 +212,6 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_cancel = function()
-                    setWakeLock(false)
                     closeProgress()
                 end,
             }
