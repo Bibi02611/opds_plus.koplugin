@@ -5,6 +5,7 @@ local bit = require("bit")
 local CoverCache = {}
 
 local CACHE_DIR = DataStorage:getDataDir() .. "/cache/opds_plus/covers"
+local _cache_bytes_estimate = nil  -- running tally; nil = unknown, triggers a real scan
 
 local function ensureDir(path)
 	if lfs.attributes(path, "mode") == "directory" then
@@ -64,27 +65,22 @@ end
 local function listCacheFiles()
 	local files = {}
 	local total = 0
-
 	if lfs.attributes(CACHE_DIR, "mode") ~= "directory" then
 		return files, total
 	end
-
-	for name in lfs.dir(CACHE_DIR) do
+	local ok, iter, state = pcall(lfs.dir, CACHE_DIR)
+	if not (ok and iter) then return files, total end
+	for name in iter, state do
 		if name ~= "." and name ~= ".." and name:sub(-4) == ".img" then
 			local path = CACHE_DIR .. "/" .. name
 			local attr = lfs.attributes(path)
 			if attr and attr.mode == "file" then
 				local size = attr.size or 0
-				table.insert(files, {
-					path = path,
-					size = size,
-					mtime = attr.modification or 0,
-				})
+				table.insert(files, { path = path, size = size, mtime = attr.modification or 0 })
 				total = total + size
 			end
 		end
 	end
-
 	return files, total
 end
 
@@ -133,32 +129,32 @@ function CoverCache.get(url, ttl_seconds)
 end
 
 function CoverCache.put(url, content, max_bytes)
-	if not content or content == "" then
-		return false
-	end
-
-	if not ensureDir(CACHE_DIR) then
-		return false
-	end
+	if not content or content == "" then return false end
+	if not ensureDir(CACHE_DIR) then return false end
 
 	local ok = writeFile(cachePath(url), content)
 	if ok and max_bytes and max_bytes > 0 then
-		-- Avoid a full lfs.dir() scan on every write.
-		-- Only prune when the cache is measurably over quota.
-		local _, current_total = listCacheFiles()
-		if current_total > max_bytes * 1.1 then
-			pruneToMaxBytes(max_bytes)
+		-- Accumulate an estimate to avoid a full lfs.dir() scan on every write.
+		-- Only do the expensive scan when the estimate exceeds the quota threshold.
+		_cache_bytes_estimate = (_cache_bytes_estimate or 0) + #content
+		if _cache_bytes_estimate > max_bytes * 1.05 then
+			local _, actual = listCacheFiles()
+			_cache_bytes_estimate = actual
+			if actual > max_bytes * 1.1 then
+				pruneToMaxBytes(max_bytes)
+				_cache_bytes_estimate = nil  -- reset; next put will re-accumulate
+			end
 		end
 	end
 	return ok
 end
 
 function CoverCache.clear()
-	if lfs.attributes(CACHE_DIR, "mode") ~= "directory" then
-		return
-	end
-
-	for name in lfs.dir(CACHE_DIR) do
+	if lfs.attributes(CACHE_DIR, "mode") ~= "directory" then return end
+	_cache_bytes_estimate = 0
+	local ok, iter, state = pcall(lfs.dir, CACHE_DIR)
+	if not (ok and iter) then return end
+	for name in iter, state do
 		if name ~= "." and name ~= ".." and name:sub(-4) == ".img" then
 			os.remove(CACHE_DIR .. "/" .. name)
 		end

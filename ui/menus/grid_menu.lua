@@ -567,10 +567,15 @@ function OPDSGridMenu:updateItems(select_number)
     -- Calculate rows for this page
     local rows_per_page = math.ceil(self.perpage / self.columns)
 
-    -- Calculate centering
+    -- Calculate centering for full rows
     local total_cells_width = (self.cell_width * self.columns) + (GRID_CONFIG.cell_margin * (self.columns - 1))
     local available_width = self.inner_dimen.w
     local centering_offset = math.floor((available_width - total_cells_width) / 2)
+
+    -- Pre-compute last-row item count for per-row centering
+    local items_on_page = math.min(self.perpage, math.max(0, #self.item_table - idx_offset))
+    local last_row_item_count = items_on_page % self.columns
+    if last_row_item_count == 0 then last_row_item_count = self.columns end
 
     -- Hash border implementation
     if border_settings.style == "hash" then
@@ -676,17 +681,32 @@ function OPDSGridMenu:updateItems(select_number)
     else
         -- Standard grid (none or individual borders)
         for row = 1, rows_per_page do
-            local row_group = HorizontalGroup:new { align = "top" }
+            local is_last_incomplete = (row == rows_per_page and last_row_item_count < self.columns)
 
-            if centering_offset > 0 then
-                table.insert(row_group, HorizontalSpan:new { width = centering_offset })
+            -- For the incomplete last row, compute a centred offset based on actual items.
+            local row_centering = centering_offset
+            if is_last_incomplete then
+                local items_w = last_row_item_count * self.cell_width
+                                + (last_row_item_count - 1) * GRID_CONFIG.cell_margin
+                row_centering = math.max(0, math.floor((available_width - items_w) / 2))
             end
 
+            local row_group = HorizontalGroup:new { align = "top" }
+            if row_centering > 0 then
+                table.insert(row_group, HorizontalSpan:new { width = row_centering })
+            end
+
+            -- Build row using "margin before" logic so the last incomplete row
+            -- can skip empty placeholder cells cleanly.
+            local items_added = 0
             for col = 1, self.columns do
                 local entry_idx = idx_offset + ((row - 1) * self.columns) + col
                 local entry = self.item_table[entry_idx]
 
                 if entry then
+                    if items_added > 0 then
+                        table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
+                    end
                     local cell = OPDSGridCell:new {
                         entry = entry,
                         cell_width = self.cell_width,
@@ -698,23 +718,20 @@ function OPDSGridMenu:updateItems(select_number)
                         font_settings = font_settings,
                         border_settings = border_settings,
                     }
-
                     table.insert(row_group, cell)
-
                     if entry.cover_url and not entry.cover_bb then
                         table.insert(self._items_to_update, { entry = entry, widget = cell })
                     end
-                else
+                    items_added = items_added + 1
+                elseif not is_last_incomplete then
+                    -- Full row: keep empty placeholder so cells stay aligned.
+                    if items_added > 0 then
+                        table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
+                    end
                     table.insert(row_group, HorizontalSpan:new { width = self.cell_width })
+                    items_added = items_added + 1
                 end
-
-                if col < self.columns then
-                    table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
-                end
-            end
-
-            if centering_offset > 0 then
-                table.insert(row_group, HorizontalSpan:new { width = centering_offset })
+                -- Incomplete last row: skip empty columns — centering handles the gap.
             end
 
             table.insert(self.item_group, row_group)

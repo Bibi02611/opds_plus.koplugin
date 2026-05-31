@@ -60,6 +60,21 @@ function OPDSCoverMenu:updateItems(select_number)
 
     self:_debugLog("updateItems - has_covers:", has_covers, "display_mode:", display_mode)
 
+    -- When switching display modes, free cached covers: each mode renders at different
+    -- dimensions, so a list-sized bb looks blurry when upscaled into a grid cell.
+    -- Freeing here causes covers to reload from disk cache (instant) at the correct size.
+    if has_covers and self._last_display_mode and self._last_display_mode ~= display_mode then
+        self:_debugLog("Mode changed", self._last_display_mode, "→", display_mode, "— freeing cover cache")
+        if self.item_table then
+            for _, item in ipairs(self.item_table) do
+                if item.cover_bb then
+                    item.cover_bb:free()
+                    item.cover_bb = nil
+                end
+            end
+        end
+    end
+
     if has_covers then
         -- Choose between list and grid based on setting
         if display_mode == "grid" then

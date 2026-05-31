@@ -23,6 +23,8 @@ local SettingsDialogs = require("ui.dialogs.settings_dialogs")
 -- Import state manager
 local StateManager = require("core.state_manager")
 
+local _cached_fonts = nil  -- populated lazily, survives the plugin session
+
 local OPDS = WidgetContainer:extend {
     name = "opdsplus",
     opds_settings_file = DataStorage:getSettingsDir() .. "/opdsplus.lua",
@@ -85,75 +87,54 @@ function OPDS:getSetting(key)
 end
 
 function OPDS:getAvailableFonts()
-    local fonts = {}
+    if _cached_fonts then return _cached_fonts end
 
-    -- Add KOReader's built-in UI fonts first
+    local fonts = {}
     table.insert(fonts, { name = "Default UI (Noto Sans)", value = "smallinfofont" })
     table.insert(fonts, { name = "Alternative UI", value = "infofont" })
 
-    -- Scan font directories for available fonts
-    local font_dirs = {
-        "./fonts", -- KOReader's font directory
-    }
-
-    -- Add user's font directory if it exists
+    local font_dirs = { "./fonts" }
     local user_font_dir = DataStorage:getDataDir() .. "/fonts"
     if lfs.attributes(user_font_dir, "mode") == "directory" then
         table.insert(font_dirs, user_font_dir)
     end
 
-    local font_extensions = {
-        [".ttf"] = true,
-        [".otf"] = true,
-        [".ttc"] = true,
-    }
-
-    -- Scan directories for font files
+    local font_extensions = { [".ttf"] = true, [".otf"] = true, [".ttc"] = true }
     local seen_fonts = {}
-    for i, font_dir in ipairs(font_dirs) do
-        if lfs.attributes(font_dir, "mode") == "directory" then
-            for entry in lfs.dir(font_dir) do
-                if entry ~= "." and entry ~= ".." then
-                    local path = font_dir .. "/" .. entry
-                    local mode = lfs.attributes(path, "mode")
 
-                    -- Check if it's a font file
-                    if mode == "file" then
-                        local ext = entry:match("%.([^.]+)$")
-                        if ext then
-                            ext = "." .. ext:lower()
-                            if font_extensions[ext] then
-                                local font_name = entry:match("^(.+)%.")
-                                if font_name and not seen_fonts[font_name] then
-                                    seen_fonts[font_name] = true
-                                    local display_name = font_name:gsub("%-", " "):gsub("_", " ")
-                                    table.insert(fonts, {
-                                        name = display_name,
-                                        value = font_name,
-                                    })
-                                end
+    local function add_font(name)
+        if not seen_fonts[name] then
+            seen_fonts[name] = true
+            table.insert(fonts, {
+                name  = name:gsub("%-", " "):gsub("_", " "),
+                value = name,
+            })
+        end
+    end
+
+    for _, font_dir in ipairs(font_dirs) do
+        if lfs.attributes(font_dir, "mode") == "directory" then
+            local ok, iter, state = pcall(lfs.dir, font_dir)
+            if ok and iter then
+                for entry in iter, state do
+                    if entry ~= "." and entry ~= ".." then
+                        local path = font_dir .. "/" .. entry
+                        local mode = lfs.attributes(path, "mode")
+                        if mode == "file" then
+                            local ext = entry:match("(%.%a+)$")
+                            if ext and font_extensions[ext:lower()] then
+                                local n = entry:match("^(.+)%.")
+                                if n then add_font(n) end
                             end
-                        end
-                        -- Also check subdirectories
-                    elseif mode == "directory" then
-                        local subdir_path = path
-                        for subentry in lfs.dir(subdir_path) do
-                            if subentry ~= "." and subentry ~= ".." then
-                                local subpath = subdir_path .. "/" .. subentry
-                                if lfs.attributes(subpath, "mode") == "file" then
-                                    local ext = subentry:match("%.([^.]+)$")
-                                    if ext then
-                                        ext = "." .. ext:lower()
-                                        if font_extensions[ext] then
-                                            local font_name = subentry:match("^(.+)%.")
-                                            if font_name and not seen_fonts[font_name] then
-                                                seen_fonts[font_name] = true
-                                                local display_name = font_name:gsub("%-", " "):gsub("_", " ")
-                                                table.insert(fonts, {
-                                                    name = display_name,
-                                                    value = font_name,
-                                                })
-                                            end
+                        elseif mode == "directory" then
+                            local ok2, iter2, state2 = pcall(lfs.dir, path)
+                            if ok2 and iter2 then
+                                for sub in iter2, state2 do
+                                    if sub ~= "." and sub ~= ".." then
+                                        local ext2 = sub:match("(%.%a+)$")
+                                        if ext2 and font_extensions[ext2:lower()] then
+                                            local n = sub:match("^(.+)%.")
+                                            if n then add_font(n) end
                                         end
                                     end
                                 end
@@ -165,9 +146,8 @@ function OPDS:getAvailableFonts()
         end
     end
 
-    -- Sort alphabetically by display name
     table.sort(fonts, function(a, b) return a.name < b.name end)
-
+    _cached_fonts = fonts
     return fonts
 end
 

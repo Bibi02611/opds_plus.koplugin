@@ -99,37 +99,25 @@ function OPDSBrowser:toggleViewMode()
 
     self:_debugLog("Toggling view mode from", current_mode, "to", new_mode)
 
-    -- Show notification
+    -- Show notification (2 s — e-ink refresh takes ~300 ms, 1 s is too brief to read)
     local mode_text = new_mode == "grid" and _("Grid View") or _("List View")
     UIManager:show(InfoMessage:new {
         text = T(_("Switched to %1"), mode_text),
-        timeout = 1,
+        timeout = 2,
     })
 
-    -- Save current position so we can restore it after perpage changes
+    -- Remember the first visible item so we can land on the equivalent page after
+    -- the mode switch (perpage differs between list and grid).
+    -- Passing first_item_idx as select_number lets Menu.updateItems() compute the
+    -- correct page in one shot — avoids a second updateItems() call and second e-ink flash.
     local first_item_idx = self.page and self.perpage
         and ((self.page - 1) * self.perpage + 1) or 1
 
-    -- Refresh the current view WITHOUT breaking navigation or auth context
     if #self.paths > 0 then
-        -- We're in a catalog - get current URL
-        local current_path = self.paths[#self.paths]
-        local current_url = current_path.url
-
-        -- Reload the catalog with same URL
-        self:updateCatalog(current_url, true)
+        local current_url = self.paths[#self.paths].url
+        self:updateCatalog(current_url, true, first_item_idx)
     else
-        -- We're at root level - just switch the display mode
-        self:switchItemTable(self.catalog_title, self.item_table, -1)
-    end
-
-    -- Restore position: perpage may differ between list and grid modes
-    if first_item_idx > 1 and self.perpage and self.perpage > 0 and self.page_num then
-        local target_page = math.ceil(first_item_idx / self.perpage)
-        if target_page > 1 and target_page <= self.page_num then
-            self.page = target_page
-            self:updateItems()
-        end
+        self:switchItemTable(self.catalog_title, self.item_table, first_item_idx)
     end
 end
 
@@ -233,8 +221,8 @@ function OPDSBrowser:genItemTableFromCatalog(catalog, item_url)
     return item_table
 end
 
-function OPDSBrowser:updateCatalog(item_url, paths_updated)
-    return NavigationHandler.updateCatalog(item_url, self, paths_updated)
+function OPDSBrowser:updateCatalog(item_url, paths_updated, select_number)
+    return NavigationHandler.updateCatalog(item_url, self, paths_updated, select_number)
 end
 
 function OPDSBrowser:appendCatalog(item_url)
@@ -305,7 +293,12 @@ function OPDSBrowser:onMenuSelect(item)
         else
             self.catalog_title = item.text or self.catalog_title or self.root_catalog_title
             connect_callback = function()
+                -- Show a loading indicator for the duration of the network/parse call.
+                local loading = InfoMessage:new { text = _("Chargement…") }
+                UIManager:show(loading)
+                UIManager:forceRePaint()
                 self:updateCatalog(item.url)
+                UIManager:close(loading)
             end
         end
         -- Bypass the "enable WiFi?" dialog when a disk-cached feed is available.
