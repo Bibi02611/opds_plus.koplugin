@@ -190,8 +190,8 @@ function OPDSBrowser:archiveFullCatalog()
                 start_url = catalog_url,
                 username  = self.root_catalog_username,
                 password  = self.root_catalog_password,
-                max_depth = 2,   -- root → sections → series → books with covers
-                max_pages = 200, -- hard cap to prevent runaway on huge libraries
+                max_depth = 2,    -- root → sections → series → books with covers
+                max_pages = 1000, -- hard cap to prevent runaway on huge libraries
 
                 on_progress = function(phase, done, total)
                     if phase == "pages" then
@@ -220,7 +220,7 @@ function OPDSBrowser:archiveFullCatalog()
 
     -- Warn before a potentially long operation
     UIManager:show(ConfirmBox:new {
-        text = _("Archiver ce catalogue pour le mode avion ?\n\nToutes les pages et couvertures accessibles depuis ce niveau seront mises en cache (jusqu'à 200 pages, 2 niveaux de profondeur).\n\nCela peut prendre plusieurs minutes pour une grande bibliothèque."),
+        text = _("Archiver ce catalogue pour le mode avion ?\n\nToutes les pages et couvertures accessibles depuis ce niveau seront mises en cache (jusqu'à 1000 pages, 2 niveaux de profondeur).\n\nCela peut prendre plusieurs minutes pour une grande bibliothèque."),
         ok_text = _("Archiver"),
         ok_callback = startArchive,
     })

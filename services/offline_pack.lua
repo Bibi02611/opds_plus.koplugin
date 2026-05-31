@@ -87,7 +87,7 @@ end
 -- @return function  cancel()
 function OfflinePack.start(cfg)
 	local max_depth = cfg.max_depth or 2
-	local max_pages = cfg.max_pages or 200
+	local max_pages = cfg.max_pages or 1000
 
 	local state = {
 		-- BFS queue
