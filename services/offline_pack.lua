@@ -163,42 +163,52 @@ function OfflinePack.start(cfg)
 			end
 			UIManager:nextTick(tick)
 
-		-- ── Phase 2 : cover download ──────────────────────────────────────────
+		-- ── Phase 2 : cover download (synchronous loop) ──────────────────────
+		-- Do NOT yield via nextTick between covers: if the event loop slows down
+		-- (screen off, Android power management), nextTick callbacks stop firing
+		-- and the download stalls. A tight loop finishes regardless of screen state.
 		elseif state.phase == "covers" then
-			local idx = state.cover_idx
-			if idx > #state.all_covers then
-				Debug.log("OfflinePack:", "done —",
-					state.pages_done, "pages,", #state.all_covers, "covers,",
-					state.covers_new, "newly downloaded")
-				if cfg.on_done then
-					cfg.on_done(state.pages_done, #state.all_covers, state.covers_new)
+			local total = #state.all_covers
+			while state.cover_idx <= total do
+				if state.cancelled then
+					if cfg.on_cancel then cfg.on_cancel() end
+					return
 				end
-				return
-			end
 
-			state.cover_idx = idx + 1
-			local url = state.all_covers[idx]
+				local idx = state.cover_idx
+				state.cover_idx = idx + 1
+				local cover_url = state.all_covers[idx]
 
-			local cached = CoverCache.get(url, nil)
-			if not cached then
-				local ok, content = HttpClient.getUrlContent(
-					url,
-					Constants.TIMEOUTS.IMAGE_LOAD,
-					Constants.TIMEOUTS.IMAGE_MAX_TIME,
-					cfg.username,
-					cfg.password
-				)
-				if ok and content then
-					CoverCache.put(url, content)
-					state.covers_new = state.covers_new + 1
+				local cached = CoverCache.get(cover_url, nil)
+				if not cached then
+					local ok, content = HttpClient.getUrlContent(
+						cover_url,
+						Constants.TIMEOUTS.IMAGE_LOAD,
+						Constants.TIMEOUTS.IMAGE_MAX_TIME,
+						cfg.username,
+						cfg.password
+					)
+					if ok and content then
+						CoverCache.put(cover_url, content)
+						state.covers_new = state.covers_new + 1
+					end
+				end
+
+				-- Update progress display every 10 covers
+				if idx % 10 == 1 then
+					if cfg.on_progress then
+						cfg.on_progress("covers", idx, total)
+					end
+					UIManager:forceRePaint()
 				end
 			end
 
-			-- Notify every 10 covers to limit e-ink screen refreshes
-			if idx % 10 == 1 and cfg.on_progress then
-				cfg.on_progress("covers", idx, #state.all_covers)
+			Debug.log("OfflinePack:", "done —",
+				state.pages_done, "pages,", total, "covers,",
+				state.covers_new, "newly downloaded")
+			if cfg.on_done then
+				cfg.on_done(state.pages_done, total, state.covers_new)
 			end
-			UIManager:nextTick(tick)
 		end
 	end
 
