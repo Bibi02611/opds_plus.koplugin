@@ -21,12 +21,17 @@ local UIManager   = require("ui/uimanager")
 local Constants   = require("models.constants")
 local Debug       = require("utils.debug")
 
--- Acquire / release the screen keep-alive (Android wakelock).
--- Wrapped in pcall so it silently no-ops on platforms that lack the API.
-local function setKeepAlive(enable)
+-- Acquire / release Android's PARTIAL_WAKE_LOCK via android.setWakeLock().
+-- This is the definitive wakelock: prevents Android from cutting CPU + WiFi
+-- even when the screen turns off. Device.screen:keepAlive is an abstraction
+-- that may not map to the correct wakelock type on all builds.
+-- Wrapped in pcall so it silently no-ops on non-Android platforms.
+local function setWakeLock(enable)
 	pcall(function()
-		local Device = require("device")
-		Device.screen:keepAlive(enable)
+		local ok, android = pcall(require, "android")
+		if ok and android and type(android.setWakeLock) == "function" then
+			android.setWakeLock(enable)
+		end
 	end)
 end
 
@@ -98,26 +103,24 @@ function OfflinePack.start(cfg)
 	local max_depth = cfg.max_depth or 2
 	local max_pages = cfg.max_pages or 1000
 
-	-- Hold the screen keep-alive for the full duration of the archive.
-	setKeepAlive(true)
-
 	local state = {
 		-- BFS queue
-		queue       = { { url = cfg.start_url, depth = 0 } },
-		visited     = { [cfg.start_url] = true },
-		pages_done  = 0,
+		queue         = { { url = cfg.start_url, depth = 0 } },
+		visited       = { [cfg.start_url] = true },
+		pages_done    = 0,
 		-- Cover collection
-		all_covers  = {},
-		seen_covers = {},
-		phase       = "pages",
-		cover_idx   = 1,
-		covers_new  = 0,
-		cancelled   = false,
+		all_covers    = {},
+		seen_covers   = {},
+		phase         = "pages",
+		cover_idx     = 1,
+		covers_new    = 0,
+		cancelled     = false,
+		wakelock_held = false,   -- acquired on first HTTP call, not at startup
 	}
 
 	local function tick()
 		if state.cancelled then
-			setKeepAlive(false)
+			setWakeLock(false)
 			if cfg.on_cancel then cfg.on_cancel() end
 			return
 		end
@@ -141,6 +144,14 @@ function OfflinePack.start(cfg)
 				end
 				UIManager:nextTick(tick)
 				return
+			end
+
+			-- Acquire wakelock just before the first real HTTP call.
+			-- Acquiring it at plugin startup is too early: Android may not
+			-- yet associate it with active network I/O and can still reclaim it.
+			if not state.wakelock_held then
+				setWakeLock(true)
+				state.wakelock_held = true
 			end
 
 			Debug.log("OfflinePack:", "fetch depth=" .. item.depth, item.url)
@@ -225,7 +236,7 @@ function OfflinePack.start(cfg)
 			end
 
 			if state.cover_idx > total then
-				setKeepAlive(false)
+				setWakeLock(false)
 				Debug.log("OfflinePack:", "done —",
 					state.pages_done, "pages,", total, "covers,",
 					state.covers_new, "newly downloaded")
