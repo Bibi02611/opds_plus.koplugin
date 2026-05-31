@@ -167,7 +167,10 @@ function OPDSBrowser:archiveFullCatalog()
     end
 
     local function showProgress(text)
-        closeProgress()
+        if progress_dialog then
+            progress_dialog:setTitle(text)
+            return
+        end
         progress_dialog = ButtonDialog:new {
             title = text,
             buttons = { { {

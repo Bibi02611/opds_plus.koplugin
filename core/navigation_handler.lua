@@ -14,11 +14,15 @@ local lfs = require("libs/libkoreader-lfs")
 
 -- Build a set of all filenames + a path_map (filename → full path) for the download dir.
 -- Called once per catalog page instead of once per item (O(n) → O(1) lookups).
+-- Result is cached until NavigationHandler.invalidateDownloadedCache() is called.
 local function buildDownloadedSet()
 	local download_dir = G_reader_settings and (
 		G_reader_settings:readSetting("download_dir") or
 		G_reader_settings:readSetting("lastdir"))
 	if not download_dir then return {}, {} end
+	if _downloaded_cache and _downloaded_cache_dir == download_dir then
+		return _downloaded_cache.set, _downloaded_cache.path_map
+	end
 	local set = {}
 	local path_map = {}
 	local ok, iter, state = pcall(lfs.dir, download_dir)
@@ -47,6 +51,8 @@ local function buildDownloadedSet()
 			end
 		end
 	end
+	_downloaded_cache = { set = set, path_map = path_map }
+	_downloaded_cache_dir = download_dir
 	return set, path_map
 end
 
@@ -91,7 +97,18 @@ local function checkAlreadyDownloaded(item, downloaded_set)
 	return false
 end
 
+-- Module-level cache for the downloaded-file set so repeated catalog pages
+-- don't re-scan the filesystem on every navigation event.
+local _downloaded_cache = nil
+local _downloaded_cache_dir = nil
+
 local NavigationHandler = {}
+
+-- Invalidate the downloaded-file cache (call after each successful download).
+function NavigationHandler.invalidateDownloadedCache()
+	_downloaded_cache = nil
+	_downloaded_cache_dir = nil
+end
 
 -- Parse OPDS catalog into item table for menu display
 -- @param catalog table Parsed OPDS feed

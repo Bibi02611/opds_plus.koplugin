@@ -88,6 +88,10 @@ function DownloadDialogBuilder.buildDownloadDialog(browser, item, filename, crea
 						local local_path = DownloadManager.getLocalDownloadPath(
 							browser, filename, filetype, acquisition.href)
 						local on_downloaded = function(file_path)
+							-- Invalidate downloaded-file cache so the next catalog
+							-- page shows the correct "already downloaded" indicator.
+							require("core.navigation_handler").invalidateDownloadedCache()
+
 							-- Komga sync recording
 							local KomgaSync = require("services.komga_sync")
 							local book_id = KomgaSync.getBookId(acquisition.href)

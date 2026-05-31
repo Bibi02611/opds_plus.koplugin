@@ -106,15 +106,13 @@ function OfflinePack.start(cfg)
 	local is_downloading = false  -- heartbeat guard
 
 	-- Heartbeat: fires every 0.5 s while a download is in progress.
-	-- • resetTickler()        — prevents KOReader's own screensaver/sleep
-	-- • forceRePaint()        — signals visible UI activity to Android
-	-- • setWakeLock(true)     — re-affirms the CPU wakelock every 500 ms
-	--                           (a single acquire can be reclaimed by Android
-	--                           if the OS decides the app is idle)
+	-- • resetTickler()    — prevents KOReader's own screensaver/sleep
+	-- • setWakeLock(true) — re-affirms the CPU wakelock every 500 ms
+	--                       (a single acquire can be reclaimed by Android
+	--                       if the OS decides the app is idle)
 	local function heartbeat()
 		if not is_downloading then return end
 		pcall(function() UIManager:resetTickler() end)
-		UIManager:forceRePaint()
 		setWakeLock(true)    -- re-affirm, not just acquire once
 		UIManager:scheduleIn(0.5, heartbeat)
 	end
