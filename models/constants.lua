@@ -48,7 +48,15 @@ local Constants = {
 		MAX_TIME = 30,
 		IMAGE_LOAD = 10,
 		IMAGE_MAX_TIME = 30,
+		-- Shorter timeouts for archive cover downloads: a dropped connection
+		-- during device sleep must not cause an indefinite hang per cover.
+		ARCHIVE_COVER = 5,
+		ARCHIVE_COVER_MAX = 8,
 	},
+
+	-- Archive: number of covers to download per scheduleIn tick.
+	-- Balances responsiveness (Cancel button) vs sleep-interruption risk.
+	ARCHIVE_COVER_BATCH = 5,
 
 	-- Sync Settings
 	SYNC = {

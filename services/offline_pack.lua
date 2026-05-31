@@ -163,28 +163,31 @@ function OfflinePack.start(cfg)
 			end
 			UIManager:nextTick(tick)
 
-		-- ── Phase 2 : cover download (synchronous loop) ──────────────────────
-		-- Do NOT yield via nextTick between covers: if the event loop slows down
-		-- (screen off, Android power management), nextTick callbacks stop firing
-		-- and the download stalls. A tight loop finishes regardless of screen state.
+		-- ── Phase 2 : cover download (batched, scheduleIn) ──────────────────
+		-- Process covers in small batches of COVER_BATCH_SIZE.
+		-- Between batches we use scheduleIn(0.1) instead of nextTick: a time-based
+		-- wakeup fires correctly after a device sleep/resume cycle (accumulated time
+		-- triggers it immediately), whereas nextTick only fires on active event-loop
+		-- iterations and can stall when the screen is off.
+		-- Each cover uses a short timeout (5 s / 8 s) so a dropped network
+		-- connection during sleep never causes an indefinite hang.
 		elseif state.phase == "covers" then
-			local total = #state.all_covers
-			while state.cover_idx <= total do
+			local total      = #state.all_covers
+			local batch_end  = math.min(state.cover_idx + Constants.ARCHIVE_COVER_BATCH - 1, total)
+
+			for i = state.cover_idx, batch_end do
 				if state.cancelled then
 					if cfg.on_cancel then cfg.on_cancel() end
 					return
 				end
 
-				local idx = state.cover_idx
-				state.cover_idx = idx + 1
-				local cover_url = state.all_covers[idx]
-
+				local cover_url = state.all_covers[i]
 				local cached = CoverCache.get(cover_url, nil)
 				if not cached then
 					local ok, content = HttpClient.getUrlContent(
 						cover_url,
-						Constants.TIMEOUTS.IMAGE_LOAD,
-						Constants.TIMEOUTS.IMAGE_MAX_TIME,
+						Constants.TIMEOUTS.ARCHIVE_COVER,
+						Constants.TIMEOUTS.ARCHIVE_COVER_MAX,
 						cfg.username,
 						cfg.password
 					)
@@ -193,21 +196,24 @@ function OfflinePack.start(cfg)
 						state.covers_new = state.covers_new + 1
 					end
 				end
-
-				-- Update progress display every 10 covers
-				if idx % 10 == 1 then
-					if cfg.on_progress then
-						cfg.on_progress("covers", idx, total)
-					end
-					UIManager:forceRePaint()
-				end
 			end
 
-			Debug.log("OfflinePack:", "done —",
-				state.pages_done, "pages,", total, "covers,",
-				state.covers_new, "newly downloaded")
-			if cfg.on_done then
-				cfg.on_done(state.pages_done, total, state.covers_new)
+			state.cover_idx = batch_end + 1
+
+			if cfg.on_progress then
+				cfg.on_progress("covers", math.min(state.cover_idx - 1, total), total)
+			end
+
+			if state.cover_idx > total then
+				Debug.log("OfflinePack:", "done —",
+					state.pages_done, "pages,", total, "covers,",
+					state.covers_new, "newly downloaded")
+				if cfg.on_done then
+					cfg.on_done(state.pages_done, total, state.covers_new)
+				end
+			else
+				-- Time-based wakeup: fires even after a device sleep/resume cycle
+				UIManager:scheduleIn(0.1, tick)
 			end
 		end
 	end
