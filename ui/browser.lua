@@ -295,7 +295,13 @@ function OPDSBrowser:onMenuSelect(item)
                 self:updateCatalog(item.url)
             end
         end
-        NetworkMgr:runWhenConnected(connect_callback)
+        -- Bypass the "enable WiFi?" dialog when a disk-cached feed is available.
+        -- parseFeed will detect the offline state and serve from cache directly.
+        if not item.searchable and FeedFetcher.hasOfflineCache(item.url) then
+            connect_callback()
+        else
+            NetworkMgr:runWhenConnected(connect_callback)
+        end
     end
     return true
 end

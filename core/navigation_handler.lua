@@ -26,8 +26,23 @@ local function checkAlreadyDownloaded(item)
 			local filename = path:match(".*/([^/]+)$")
 			if filename and filename ~= "" then
 				filename = socket_url_mod.unescape(filename)
+				-- Check base download dir
 				if lfs.attributes(download_dir .. "/" .. filename, "mode") == "file" then
 					return true
+				end
+				-- Check one level of subdirectories (series/collection folders)
+				local ok, iter = pcall(lfs.dir, download_dir)
+				if ok and iter then
+					for entry in iter do
+						if entry ~= "." and entry ~= ".." then
+							local sub = download_dir .. "/" .. entry
+							if lfs.attributes(sub, "mode") == "directory" then
+								if lfs.attributes(sub .. "/" .. filename, "mode") == "file" then
+									return true
+								end
+							end
+						end
+					end
 				end
 			end
 		end
