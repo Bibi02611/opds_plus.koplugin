@@ -143,7 +143,12 @@ function CoverCache.put(url, content, max_bytes)
 
 	local ok = writeFile(cachePath(url), content)
 	if ok and max_bytes and max_bytes > 0 then
-		pruneToMaxBytes(max_bytes)
+		-- Avoid a full lfs.dir() scan on every write.
+		-- Only prune when the cache is measurably over quota.
+		local _, current_total = listCacheFiles()
+		if current_total > max_bytes * 1.1 then
+			pruneToMaxBytes(max_bytes)
+		end
 	end
 	return ok
 end

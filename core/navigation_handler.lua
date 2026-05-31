@@ -10,6 +10,30 @@ local Constants = require("models.constants")
 local UrlUtils = require("utils.url_utils")
 local CatalogUtils = require("utils.catalog_utils")
 local BrowserContext = require("core.browser_context")
+local lfs = require("libs/libkoreader-lfs")
+local socket_url_mod = require("socket.url")
+
+-- Check if any acquisition file for this item already exists in the default download dir.
+-- Best-effort: checks URL-derived filename without subfolder.
+local function checkAlreadyDownloaded(item)
+	local download_dir = G_reader_settings and (
+		G_reader_settings:readSetting("download_dir") or
+		G_reader_settings:readSetting("lastdir"))
+	if not download_dir then return false end
+	for _, acq in ipairs(item.acquisitions or {}) do
+		if acq.href then
+			local path = acq.href:gsub("?.*", ""):gsub("#.*", "")
+			local filename = path:match(".*/([^/]+)$")
+			if filename and filename ~= "" then
+				filename = socket_url_mod.unescape(filename)
+				if lfs.attributes(download_dir .. "/" .. filename, "mode") == "file" then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
 
 local NavigationHandler = {}
 
@@ -221,6 +245,11 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 		local raw_index = entry["dc:seriesIndex"] or entry["schema:Number"]
 		if type(raw_index) == "table" then raw_index = raw_index[1] end
 		item.series_index = raw_index and tonumber(raw_index) or nil
+
+		-- Mark whether any acquisition file already exists locally (best-effort)
+		if item.acquisitions and #item.acquisitions > 0 then
+			item.already_downloaded = checkAlreadyDownloaded(item)
+		end
 
 		table.insert(item_table, item)
 	end

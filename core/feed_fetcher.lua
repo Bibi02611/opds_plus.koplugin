@@ -26,6 +26,11 @@ local CatalogCache = Cache:new {
 	slots = Constants.CACHE_SLOTS,
 }
 
+-- Offline fallback cache — keyed by URL alone, survives Last-Modified changes.
+local OfflineCache = Cache:new {
+	slots = Constants.CACHE_SLOTS,
+}
+
 -- Fetch raw XML feed from URL
 -- @param item_url string URL to fetch from
 -- @param headers_only boolean If true, only fetch headers (HEAD request)
@@ -107,31 +112,43 @@ function FeedFetcher.parseFeed(item_url, username, password, debug_callback)
 	local headers = FeedFetcher.fetchFeed(item_url, true, username, password)
 	local feed_last_modified = headers and headers["last-modified"]
 	local feed
+	local offline_key = "opds|offline|" .. item_url
 
 	if feed_last_modified then
 		local hash = "opds|catalog|" .. item_url .. "|" .. feed_last_modified
 		feed = CatalogCache:check(hash)
 		if feed then
-			if debug_callback then
-				debug_callback("Cache hit for", item_url)
-			end
+			if debug_callback then debug_callback("Cache hit for", item_url) end
 		else
-			if debug_callback then
-				debug_callback("Cache miss, fetching", item_url)
-			end
+			if debug_callback then debug_callback("Cache miss, fetching", item_url) end
 			feed = FeedFetcher.fetchFeed(item_url, false, username, password)
 			if feed then
 				CatalogCache:insert(hash, feed)
+				OfflineCache:insert(offline_key, feed)
 			end
 		end
 	else
 		feed = FeedFetcher.fetchFeed(item_url, false, username, password)
+		if feed then
+			OfflineCache:insert(offline_key, feed)
+		end
+	end
+
+	-- Offline fallback: serve stale cached feed when network is unavailable.
+	if not feed then
+		feed = OfflineCache:check(offline_key)
+		if feed then
+			logger.info("OPDS: network unavailable, serving cached feed for", item_url)
+			UIManager:show(InfoMessage:new {
+				text = _("Mode hors-ligne : catalogue mis en cache utilisé."),
+				timeout = 3,
+			})
+		end
 	end
 
 	if feed then
 		return OPDSParser:parse(feed)
 	end
-
 	return nil
 end
 
@@ -245,12 +262,14 @@ end
 -- Clear the catalog cache
 function FeedFetcher.clearCache()
 	CatalogCache:clear()
+	OfflineCache:clear()
 end
 
 -- Get cache statistics
 -- @return number, number Used slots, total slots
 function FeedFetcher.getCacheStats()
-	return CatalogCache:used_size(), CatalogCache.slots
+	return CatalogCache:used_size() + OfflineCache:used_size(),
+	       CatalogCache.slots + OfflineCache.slots
 end
 
 return FeedFetcher

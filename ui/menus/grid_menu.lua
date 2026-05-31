@@ -21,6 +21,8 @@ local Screen = Device.screen
 local _ = require("utils.locale")
 
 local CoverLoader = require("services.cover_loader")
+local Constants = require("models.constants")
+local TopContainer = require("ui/widget/container/topcontainer")
 local Debug = require("utils.debug")
 local StateManager = require("core.state_manager")
 
@@ -178,11 +180,12 @@ function OPDSGridCell:init()
 
     -- Title
     local title_face = Font:getFace(title_font, title_size)
-    local title_text = UIUtils.truncateText(title, title_face, text_width * 2)
+    local raw_title = self.entry.already_downloaded and ("\xe2\x9c\x93 " .. title) or title
+    local title_text = UIUtils.truncateText(raw_title, title_face, text_width * 2)
 
     local title_widget = TextBoxWidget:new {
         text = title_text,
-        face = Font:getFace(title_font, title_size),
+        face = title_face,
         bold = title_bold,
         width = text_width,
         height = title_fixed_height,
@@ -246,7 +249,6 @@ function OPDSGridCell:init()
     end
 
     -- Wrap entire text group in fixed-height container
-    local TopContainer = require("ui/widget/container/topcontainer")
     local text_container = TopContainer:new {
         dimen = Geom:new {
             w = text_width,
@@ -294,9 +296,25 @@ function OPDSGridCell:init()
 end
 
 function OPDSGridCell:update()
-    self:init()
+    local new_inner
+    if self.entry.cover_bb then
+        new_inner = ImageWidget:new {
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
+        }
+    elseif self.entry.cover_failed then
+        new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "error")
+    else
+        new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
+    end
+    if self.cover_widget then
+        self.cover_widget[1] = new_inner
+    end
     UIManager:setDirty(self.show_parent, function()
-        return "ui", self.dimen
+        return "partial", self.dimen
     end)
 end
 
@@ -329,7 +347,7 @@ local OPDSGridMenu = Menu:extend {
     cell_width = nil,
     cell_height = nil,
     columns = nil,
-    _items_to_update = {},
+    _items_to_update = nil,
 }
 
 function OPDSGridMenu:_debugLog(...)
@@ -466,7 +484,7 @@ function OPDSGridMenu:_recalculateDimen()
     local used_height = (rows_per_page * self.cell_height) + ((rows_per_page - 1) * GRID_CONFIG.row_spacing)
     local remaining_space = available_height - used_height
 
-    if remaining_space > self.cell_height * 0.6 then
+    if remaining_space > self.cell_height * Constants.LAYOUT.GRID_WHITESPACE_RATIO then
         -- Try to fit one more row
         local new_rows = rows_per_page + 1
         local total_spacing = (new_rows - 1) * GRID_CONFIG.row_spacing
@@ -725,7 +743,8 @@ function OPDSGridMenu:updateItems(select_number)
 
     -- Custom page info
     if self.page_info then
-        local custom_text = "▦ " .. self.page .. "/" .. self.page_num .. " (" .. self.perpage .. " items)"
+        local grid_cols = self.columns or 3
+        local custom_text = "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. grid_cols .. " col.)"
 
         for i = 1, 10 do
             if self.page_info[i] and type(self.page_info[i]) == "table" and self.page_info[i].text then
@@ -749,23 +768,26 @@ function OPDSGridMenu:updateItems(select_number)
         end
     end
 
-    -- Schedule cover loading
+    -- Schedule cover loading; cancel any stale pending schedule first.
     if #self._items_to_update > 0 then
         self:_debugLog("Scheduling cover loading for", #self._items_to_update, "items")
-
+        if self._scheduled_cover_load then
+            UIManager:unschedule(self._scheduled_cover_load)
+        end
         self._scheduled_cover_load = function()
+            self._scheduled_cover_load = nil
             if self._loadVisibleCovers then
                 self:_loadVisibleCovers()
             end
         end
-        UIManager:scheduleIn(1, self._scheduled_cover_load)
+        UIManager:scheduleIn(Constants.LAYOUT.COVER_LOAD_DELAY_SECONDS, self._scheduled_cover_load)
     end
 end
 
 -- Override page info
 function OPDSGridMenu:getPageInfo()
     local columns = self.columns or 3
-    return "▦ " .. self.page .. " / " .. self.page_num .. " (" .. self.perpage .. " items, " .. columns .. " cols)"
+    return "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. columns .. " col.)"
 end
 
 function OPDSGridMenu:_loadVisibleCovers()
