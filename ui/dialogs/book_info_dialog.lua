@@ -31,6 +31,7 @@ local logger = require("logger")
 local url = require("socket.url")
 local util = require("util")
 local T_get = require("utils.locale")
+local KomgaSync = require("services.komga_sync")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
@@ -720,7 +721,7 @@ function BookInfoDialog.build(browser, item)
 
 	-- Title bar
 	local title_bar = TitleBar:new {
-		title = item.title or T_get("Book Information"),
+		title = (item.already_downloaded and "\xe2\x9c\x93 " or "") .. (item.title or T_get("Book Information")),
 		fullscreen = true,
 		width = dialog_width,
 		with_bottom_line = true,

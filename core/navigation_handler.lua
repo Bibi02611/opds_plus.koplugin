@@ -10,6 +10,86 @@ local Constants = require("models.constants")
 local UrlUtils = require("utils.url_utils")
 local CatalogUtils = require("utils.catalog_utils")
 local BrowserContext = require("core.browser_context")
+local lfs = require("libs/libkoreader-lfs")
+
+-- Build a set of all filenames + a path_map (filename → full path) for the download dir.
+-- Called once per catalog page instead of once per item (O(n) → O(1) lookups).
+local function buildDownloadedSet()
+	local download_dir = G_reader_settings and (
+		G_reader_settings:readSetting("download_dir") or
+		G_reader_settings:readSetting("lastdir"))
+	if not download_dir then return {}, {} end
+	local set = {}
+	local path_map = {}
+	local ok, iter, state = pcall(lfs.dir, download_dir)
+	if ok and iter then
+		for entry in iter, state do
+			if entry ~= "." and entry ~= ".." then
+				local p = download_dir .. "/" .. entry
+				local mode = lfs.attributes(p, "mode")
+				if mode == "file" then
+					set[entry] = true
+					path_map[entry] = p
+				elseif mode == "directory" then
+					local ok2, iter2, state2 = pcall(lfs.dir, p)
+					if ok2 and iter2 then
+						for sub in iter2, state2 do
+							if sub ~= "." and sub ~= ".." then
+								local sp = p .. "/" .. sub
+								if lfs.attributes(sp, "mode") == "file" then
+									set[sub] = true
+									path_map[sub] = sp
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	return set, path_map
+end
+
+-- Return reading progress (0–1) for a downloaded item, or nil if unknown.
+local function getReadingProgress(item, path_map)
+	for _, acq in ipairs(item.acquisitions or {}) do
+		if acq.href then
+			local raw = acq.href:gsub("?.*", ""):gsub("#.*", "")
+			local filename = raw:match(".*/([^/]+)$")
+			if filename and filename ~= "" then
+				filename = socket_url.unescape(filename)
+				local full_path = path_map[filename]
+				if full_path then
+					local ok, pct = pcall(function()
+						local DocSettings = require("docsettings")
+						return DocSettings:open(full_path):readSetting("percent_finished")
+					end)
+					if ok and type(pct) == "number" and pct > 0 then
+						return pct
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- Check if any acquisition file for this item exists in the pre-built set.
+local function checkAlreadyDownloaded(item, downloaded_set)
+	for _, acq in ipairs(item.acquisitions or {}) do
+		if acq.href then
+			local path = acq.href:gsub("?.*", ""):gsub("#.*", "")
+			local filename = path:match(".*/([^/]+)$")
+			if filename and filename ~= "" then
+				filename = socket_url.unescape(filename)
+				if downloaded_set[filename] then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
 
 local NavigationHandler = {}
 
@@ -27,6 +107,9 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 	if not catalog then
 		return item_table, facet_groups, search_url
 	end
+
+	-- Build downloaded-file set + path map once for the whole catalog (O(1) per-item lookups).
+	local downloaded_set, path_map = buildDownloadedSet()
 
 	local feed = catalog.feed or catalog
 	facet_groups = {}
@@ -222,6 +305,14 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 		if type(raw_index) == "table" then raw_index = raw_index[1] end
 		item.series_index = raw_index and tonumber(raw_index) or nil
 
+		-- Mark whether any acquisition file already exists locally (best-effort)
+		if item.acquisitions and #item.acquisitions > 0 then
+			item.already_downloaded = checkAlreadyDownloaded(item, downloaded_set)
+			if item.already_downloaded then
+				item.reading_percent = getReadingProgress(item, path_map)
+			end
+		end
+
 		table.insert(item_table, item)
 	end
 
@@ -234,8 +325,9 @@ end
 -- @param item_url string URL to fetch and display
 -- @param browser table Browser instance
 -- @param paths_updated boolean Whether paths have already been updated
+-- @param select_number number|nil Item index to restore scroll position (nil = page 1)
 -- @return boolean True if successful
-function NavigationHandler.updateCatalog(item_url, browser, paths_updated)
+function NavigationHandler.updateCatalog(item_url, browser, paths_updated, select_number)
 	local FeedFetcher = require("core.feed_fetcher")
 
 	if browser._debugLog then
@@ -274,7 +366,7 @@ function NavigationHandler.updateCatalog(item_url, browser, paths_updated)
 				title = browser.catalog_title,
 			})
 		end
-		browser:switchItemTable(browser.catalog_title, menu_table)
+		browser:switchItemTable(browser.catalog_title, menu_table, select_number)
 
 		-- Set appropriate title bar icon based on content
 		if browser.facet_groups or browser.search_url then
@@ -293,6 +385,17 @@ function NavigationHandler.updateCatalog(item_url, browser, paths_updated)
 					browser:addSubCatalog(item_url)
 				end
 			end
+		end
+
+		-- Expose search in title bar right button when the catalog supports it
+		if browser.search_url then
+			browser.title_bar_right_icon = "search"
+			browser.onRightButtonTap = function()
+				browser:searchCatalog(browser.search_url)
+			end
+		else
+			browser.title_bar_right_icon = nil
+			browser.onRightButtonTap = nil
 		end
 
 		if browser.page_num <= 1 then

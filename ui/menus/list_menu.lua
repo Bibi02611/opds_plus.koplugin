@@ -21,6 +21,9 @@ local Screen = Device.screen
 local _ = require("utils.locale")
 
 local CoverLoader = require("services.cover_loader")
+local Constants = require("models.constants")
+local TopContainer = require("ui/widget/container/topcontainer")
+local LineWidget = require("ui/widget/linewidget")
 local Debug = require("utils.debug")
 local StateManager = require("core.state_manager")
 
@@ -122,15 +125,14 @@ function OPDSListMenuItem:init()
     -- Check if we should use real cover or placeholder
     if self.entry.cover_bb then
         inner_cover_widget = ImageWidget:new {
-            image = self.entry.cover_bb,
-            width = self.cover_width,
-            height = self.cover_height,
-            alpha = true,
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
         }
-    elseif self.entry.cover_url and self.entry.lazy_load_cover then
+    elseif self.entry.cover_url then
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "loading")
-    elseif self.entry.cover_url and self.entry.cover_failed then
-        inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "error")
     else
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
     end
@@ -190,11 +192,12 @@ function OPDSListMenuItem:init()
 
     -- Title
     local title_face = Font:getFace(title_font, title_size)
-    local title_text = UIUtils.truncateText(title, title_face, text_width * 2)
+    local raw_title = self.entry.already_downloaded and ("\xe2\x9c\x93 " .. title) or title
+    local title_text = UIUtils.truncateText(raw_title, title_face, text_width * 2)
 
     local title_widget = TextBoxWidget:new {
         text = title_text,
-        face = Font:getFace(title_font, title_size),
+        face = title_face,
         width = text_width,
         alignment = "left",
         bold = title_bold,
@@ -223,7 +226,7 @@ function OPDSListMenuItem:init()
         table.insert(text_group, VerticalSpan:new { width = text_padding })
 
         local series_face = Font:getFace(info_font, info_size - 1)
-        local icon = "📚 "
+        local icon = Constants.LAYOUT.SERIES_ICON
         local full_series = icon .. series_text
         local truncated_series = UIUtils.truncateText(full_series, series_face, text_width)
 
@@ -233,6 +236,20 @@ function OPDSListMenuItem:init()
             max_width = text_width,
             fgcolor = info_color,
             bold = info_bold,
+        })
+    end
+
+    -- Reading progress bar
+    if self.entry.reading_percent and self.entry.reading_percent > 0 then
+        local pct = math.floor(self.entry.reading_percent * 100)
+        local filled = math.floor(8 * self.entry.reading_percent)
+        local bar = string.rep("\xe2\x96\xac", filled) .. string.rep("\xe2\x96\xad", 8 - filled)
+        table.insert(text_group, VerticalSpan:new { width = text_padding })
+        table.insert(text_group, TextWidget:new {
+            text = bar .. " " .. pct .. "%",
+            face = Font:getFace(info_font, info_size - 1),
+            max_width = text_width,
+            fgcolor = Blitbuffer.COLOR_BLACK,
         })
     end
 
@@ -249,8 +266,6 @@ function OPDSListMenuItem:init()
     end
 
     -- Assemble the complete item with proper spacing
-    local TopContainer = require("ui/widget/container/topcontainer")
-
     self[1] = FrameContainer:new {
         width = self.width,
         height = self.height,
@@ -282,11 +297,28 @@ function OPDSListMenuItem:init()
 end
 
 function OPDSListMenuItem:update()
-    -- Re-initialize with updated entry data
-    self:init()
-    UIManager:setDirty(self.show_parent, function()
-        return "ui", self.dimen
-    end)
+    -- Swap only the cover widget to avoid full rebuild and e-ink flicker.
+    local new_inner
+    if self.entry.cover_bb then
+        new_inner = ImageWidget:new {
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
+        }
+    else
+        new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
+    end
+    if self.cover_widget then
+        local old = self.cover_widget[1]
+        self.cover_widget[1] = new_inner
+        if old and old.free then old:free() end
+    end
+    -- Use "ui" on the whole show_parent: partial + self.dimen relies on the widget
+    -- having been laid out (x/y set by paintTo) which is not guaranteed when the
+    -- callback fires very early. A full "ui" repaint is reliable on all e-ink displays.
+    UIManager:setDirty(self.show_parent, "ui")
 end
 
 -- Handle tap events - delegate to parent menu
@@ -308,14 +340,14 @@ function OPDSListMenuItem:onHoldSelect(arg, ges)
 end
 
 function OPDSListMenuItem:free()
-    -- Nothing to free for dynamic placeholders
+    InputContainer.free(self)
 end
 
 -- Main OPDS List Menu that extends the standard Menu
 local OPDSListMenu = Menu:extend {
     cover_width = nil,
     cover_height = nil,
-    _items_to_update = {},
+    _items_to_update = nil,
 }
 
 function OPDSListMenu:_debugLog(...)
@@ -400,7 +432,7 @@ function OPDSListMenu:_recalculateDimen()
     local used_height = self.perpage * self.item_height
     local remaining_space = available_height - used_height
 
-    if remaining_space > self.item_height * 0.7 then
+    if remaining_space > self.item_height * Constants.LAYOUT.LIST_WHITESPACE_RATIO then
         -- We have space for another item if we shrink covers slightly
         local new_items = self.perpage + 1
         local new_item_height = math.floor(available_height / new_items)
@@ -493,7 +525,6 @@ function OPDSListMenu:updateItems(select_number)
 
             -- Add separator line between items (but not after the last one)
             if i < self.perpage and entry_idx < #self.item_table then
-                local LineWidget = require("ui/widget/linewidget")
                 table.insert(self.item_group, LineWidget:new {
                     dimen = Geom:new { w = item_width, h = Size.line.thin },
                     background = Blitbuffer.COLOR_DARK_GRAY,
@@ -502,8 +533,9 @@ function OPDSListMenu:updateItems(select_number)
 
             table.insert(self.layout, { item }) -- Wrap in table for focus manager
 
-            -- Track items that need cover loading
-            if entry.cover_url and entry.lazy_load_cover and not entry.cover_bb then
+            -- Queue covers that are missing — includes fresh items, halted loads,
+            -- and previously-failed covers (retry on every page visit).
+            if entry.cover_url and not entry.cover_bb then
                 table.insert(self._items_to_update, {
                     entry = entry,
                     widget = item,
@@ -521,56 +553,39 @@ function OPDSListMenu:updateItems(select_number)
         return "ui", refresh_dimen
     end)
 
-    -- Update page info with custom text
-    if self.page_info then
-        local custom_text = "≡ " .. self.page .. "/" .. self.page_num .. " (" .. self.perpage .. " items)"
-
-        -- Find and replace the text widget
-        for i = 1, 10 do
-            if self.page_info[i] and type(self.page_info[i]) == "table" and self.page_info[i].text then
-                -- Get the original widget's properties (with fallbacks)
-                local old_widget = self.page_info[i]
-                local face = old_widget.face or Font:getFace("smallinfofont")
-                local fgcolor = old_widget.fgcolor or Blitbuffer.COLOR_BLACK
-
-                -- Free the old widget
-                if old_widget.free then
-                    old_widget:free()
-                end
-
-                -- Create new TextWidget with updated text
-                self.page_info[i] = TextWidget:new {
-                    text = custom_text,
-                    face = face,
-                    fgcolor = fgcolor,
-                }
-
-                -- Mark dirty for full refresh
-                UIManager:setDirty(self.show_parent, "ui")
-
-                break
-            end
-        end
-    end
-
-    -- Schedule cover loading
+    -- Schedule cover loading; cancel any stale pending schedule first.
     if #self._items_to_update > 0 then
         self:_debugLog("Scheduling cover loading for", #self._items_to_update, "items")
-
-        -- Store the scheduled function so it can be cancelled if needed
+        if self._scheduled_cover_load then
+            UIManager:unschedule(self._scheduled_cover_load)
+        end
         self._scheduled_cover_load = function()
+            self._scheduled_cover_load = nil
             if self._loadVisibleCovers then
                 self:_loadVisibleCovers()
             end
         end
-
-        UIManager:scheduleIn(1, self._scheduled_cover_load)
+        UIManager:scheduleIn(Constants.LAYOUT.COVER_LOAD_DELAY_SECONDS, self._scheduled_cover_load)
     end
 end
 
--- Override page info to show mode indicator
-function OPDSListMenu:getPageInfo()
-    return "≡ " .. self.page .. " / " .. self.page_num .. " (" .. self.perpage .. " items)"
+function OPDSListMenu:updatePageInfo(select_number)
+    Menu.updatePageInfo(self, select_number)
+    if not self.page_info or self.page_num <= 0 then return end
+    local text = "\xe2\x89\xa1  " .. self.page .. " / " .. self.page_num
+    for i = 1, #self.page_info do
+        local child = self.page_info[i]
+        if child and type(child) == "table" and child.text ~= nil then
+            local old = child
+            self.page_info[i] = TextWidget:new {
+                text = text,
+                face = old.face or Font:getFace("smallinfofont"),
+                fgcolor = old.fgcolor or Blitbuffer.COLOR_BLACK,
+            }
+            if old.free then old:free() end
+            break
+        end
+    end
 end
 
 function OPDSListMenu:_loadVisibleCovers()

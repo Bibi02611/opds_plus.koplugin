@@ -21,6 +21,8 @@ local Screen = Device.screen
 local _ = require("utils.locale")
 
 local CoverLoader = require("services.cover_loader")
+local Constants = require("models.constants")
+local TopContainer = require("ui/widget/container/topcontainer")
 local Debug = require("utils.debug")
 local StateManager = require("core.state_manager")
 
@@ -111,15 +113,14 @@ function OPDSGridCell:init()
     local inner_cover_widget
     if self.entry.cover_bb then
         inner_cover_widget = ImageWidget:new {
-            image = self.entry.cover_bb,
-            width = self.cover_width,
-            height = self.cover_height,
-            alpha = true,
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
         }
-    elseif self.entry.cover_url and self.entry.lazy_load_cover then
+    elseif self.entry.cover_url then
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "loading")
-    elseif self.entry.cover_url and self.entry.cover_failed then
-        inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "error")
     else
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
     end
@@ -178,11 +179,12 @@ function OPDSGridCell:init()
 
     -- Title
     local title_face = Font:getFace(title_font, title_size)
-    local title_text = UIUtils.truncateText(title, title_face, text_width * 2)
+    local raw_title = self.entry.already_downloaded and ("\xe2\x9c\x93 " .. title) or title
+    local title_text = UIUtils.truncateText(raw_title, title_face, text_width * 2)
 
     local title_widget = TextBoxWidget:new {
         text = title_text,
-        face = Font:getFace(title_font, title_size),
+        face = title_face,
         bold = title_bold,
         width = text_width,
         height = title_fixed_height,
@@ -208,14 +210,21 @@ function OPDSGridCell:init()
     }
     table.insert(text_group, title_container)
 
-    -- Author - with truncation
+    -- Author - with truncation (append reading progress when available)
     if GRID_CONFIG.show_author then
         table.insert(text_group, VerticalSpan:new { width = title_author_gap })
 
         local author_widget
-        if author and author ~= "" then
+        local author_display = author or ""
+        if self.entry.reading_percent and self.entry.reading_percent > 0 then
+            local pct = math.floor(self.entry.reading_percent * 100)
+            local suffix = " · " .. pct .. "%"
+            author_display = author_display ~= "" and (author_display .. suffix) or (pct .. "%")
+        end
+
+        if author_display ~= "" then
             local author_face = Font:getFace(info_font, info_size)
-            local author_text = UIUtils.truncateText(author, author_face, text_width)
+            local author_text = UIUtils.truncateText(author_display, author_face, text_width)
 
             author_widget = TextWidget:new {
                 text = author_text,
@@ -246,7 +255,6 @@ function OPDSGridCell:init()
     end
 
     -- Wrap entire text group in fixed-height container
-    local TopContainer = require("ui/widget/container/topcontainer")
     local text_container = TopContainer:new {
         dimen = Geom:new {
             w = text_width,
@@ -294,10 +302,24 @@ function OPDSGridCell:init()
 end
 
 function OPDSGridCell:update()
-    self:init()
-    UIManager:setDirty(self.show_parent, function()
-        return "ui", self.dimen
-    end)
+    local new_inner
+    if self.entry.cover_bb then
+        new_inner = ImageWidget:new {
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
+        }
+    else
+        new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
+    end
+    if self.cover_widget then
+        local old = self.cover_widget[1]
+        self.cover_widget[1] = new_inner
+        if old and old.free then old:free() end
+    end
+    UIManager:setDirty(self.show_parent, "ui")
 end
 
 function OPDSGridCell:onTapSelect(arg, ges)
@@ -317,7 +339,7 @@ function OPDSGridCell:onHoldSelect(arg, ges)
 end
 
 function OPDSGridCell:free()
-    -- Nothing to free
+    InputContainer.free(self)
 end
 
 -- ============================================
@@ -329,7 +351,7 @@ local OPDSGridMenu = Menu:extend {
     cell_width = nil,
     cell_height = nil,
     columns = nil,
-    _items_to_update = {},
+    _items_to_update = nil,
 }
 
 function OPDSGridMenu:_debugLog(...)
@@ -466,7 +488,7 @@ function OPDSGridMenu:_recalculateDimen()
     local used_height = (rows_per_page * self.cell_height) + ((rows_per_page - 1) * GRID_CONFIG.row_spacing)
     local remaining_space = available_height - used_height
 
-    if remaining_space > self.cell_height * 0.6 then
+    if remaining_space > self.cell_height * Constants.LAYOUT.GRID_WHITESPACE_RATIO then
         -- Try to fit one more row
         local new_rows = rows_per_page + 1
         local total_spacing = (new_rows - 1) * GRID_CONFIG.row_spacing
@@ -555,10 +577,15 @@ function OPDSGridMenu:updateItems(select_number)
     -- Calculate rows for this page
     local rows_per_page = math.ceil(self.perpage / self.columns)
 
-    -- Calculate centering
+    -- Calculate centering for full rows
     local total_cells_width = (self.cell_width * self.columns) + (GRID_CONFIG.cell_margin * (self.columns - 1))
     local available_width = self.inner_dimen.w
     local centering_offset = math.floor((available_width - total_cells_width) / 2)
+
+    -- Pre-compute last-row item count for per-row centering
+    local items_on_page = math.min(self.perpage, math.max(0, #self.item_table - idx_offset))
+    local last_row_item_count = items_on_page % self.columns
+    if last_row_item_count == 0 then last_row_item_count = self.columns end
 
     -- Hash border implementation
     if border_settings.style == "hash" then
@@ -592,7 +619,7 @@ function OPDSGridMenu:updateItems(select_number)
 
                     table.insert(row_group, cell)
 
-                    if entry.cover_url and entry.lazy_load_cover and not entry.cover_bb then
+                    if entry.cover_url and not entry.cover_bb then
                         table.insert(self._items_to_update, { entry = entry, widget = cell })
                     end
                 else
@@ -664,17 +691,32 @@ function OPDSGridMenu:updateItems(select_number)
     else
         -- Standard grid (none or individual borders)
         for row = 1, rows_per_page do
-            local row_group = HorizontalGroup:new { align = "top" }
+            local is_last_incomplete = (row == rows_per_page and last_row_item_count < self.columns)
 
-            if centering_offset > 0 then
-                table.insert(row_group, HorizontalSpan:new { width = centering_offset })
+            -- For the incomplete last row, compute a centred offset based on actual items.
+            local row_centering = centering_offset
+            if is_last_incomplete then
+                local items_w = last_row_item_count * self.cell_width
+                                + (last_row_item_count - 1) * GRID_CONFIG.cell_margin
+                row_centering = math.max(0, math.floor((available_width - items_w) / 2))
             end
 
+            local row_group = HorizontalGroup:new { align = "top" }
+            if row_centering > 0 then
+                table.insert(row_group, HorizontalSpan:new { width = row_centering })
+            end
+
+            -- Build row using "margin before" logic so the last incomplete row
+            -- can skip empty placeholder cells cleanly.
+            local items_added = 0
             for col = 1, self.columns do
                 local entry_idx = idx_offset + ((row - 1) * self.columns) + col
                 local entry = self.item_table[entry_idx]
 
                 if entry then
+                    if items_added > 0 then
+                        table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
+                    end
                     local cell = OPDSGridCell:new {
                         entry = entry,
                         cell_width = self.cell_width,
@@ -686,23 +728,20 @@ function OPDSGridMenu:updateItems(select_number)
                         font_settings = font_settings,
                         border_settings = border_settings,
                     }
-
                     table.insert(row_group, cell)
-
-                    if entry.cover_url and entry.lazy_load_cover and not entry.cover_bb then
+                    if entry.cover_url and not entry.cover_bb then
                         table.insert(self._items_to_update, { entry = entry, widget = cell })
                     end
-                else
+                    items_added = items_added + 1
+                elseif not is_last_incomplete then
+                    -- Full row: keep empty placeholder so cells stay aligned.
+                    if items_added > 0 then
+                        table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
+                    end
                     table.insert(row_group, HorizontalSpan:new { width = self.cell_width })
+                    items_added = items_added + 1
                 end
-
-                if col < self.columns then
-                    table.insert(row_group, HorizontalSpan:new { width = GRID_CONFIG.cell_margin })
-                end
-            end
-
-            if centering_offset > 0 then
-                table.insert(row_group, HorizontalSpan:new { width = centering_offset })
+                -- Incomplete last row: skip empty columns — centering handles the gap.
             end
 
             table.insert(self.item_group, row_group)
@@ -723,49 +762,40 @@ function OPDSGridMenu:updateItems(select_number)
         return "ui", refresh_dimen
     end)
 
-    -- Custom page info
-    if self.page_info then
-        local custom_text = "▦ " .. self.page .. "/" .. self.page_num .. " (" .. self.perpage .. " items)"
-
-        for i = 1, 10 do
-            if self.page_info[i] and type(self.page_info[i]) == "table" and self.page_info[i].text then
-                local old_widget = self.page_info[i]
-                local face = old_widget.face or Font:getFace("smallinfofont")
-                local fgcolor = old_widget.fgcolor or Blitbuffer.COLOR_BLACK
-
-                if old_widget.free then
-                    old_widget:free()
-                end
-
-                self.page_info[i] = TextWidget:new {
-                    text = custom_text,
-                    face = face,
-                    fgcolor = fgcolor,
-                }
-
-                UIManager:setDirty(self.show_parent, "ui")
-                break
-            end
-        end
-    end
-
-    -- Schedule cover loading
+    -- Schedule cover loading; cancel any stale pending schedule first.
     if #self._items_to_update > 0 then
         self:_debugLog("Scheduling cover loading for", #self._items_to_update, "items")
-
+        if self._scheduled_cover_load then
+            UIManager:unschedule(self._scheduled_cover_load)
+        end
         self._scheduled_cover_load = function()
+            self._scheduled_cover_load = nil
             if self._loadVisibleCovers then
                 self:_loadVisibleCovers()
             end
         end
-        UIManager:scheduleIn(1, self._scheduled_cover_load)
+        UIManager:scheduleIn(Constants.LAYOUT.COVER_LOAD_DELAY_SECONDS, self._scheduled_cover_load)
     end
 end
 
--- Override page info
-function OPDSGridMenu:getPageInfo()
+function OPDSGridMenu:updatePageInfo(select_number)
+    Menu.updatePageInfo(self, select_number)
+    if not self.page_info or self.page_num <= 0 then return end
     local columns = self.columns or 3
-    return "▦ " .. self.page .. " / " .. self.page_num .. " (" .. self.perpage .. " items, " .. columns .. " cols)"
+    local text = "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. columns .. " col.)"
+    for i = 1, #self.page_info do
+        local child = self.page_info[i]
+        if child and type(child) == "table" and child.text ~= nil then
+            local old = child
+            self.page_info[i] = TextWidget:new {
+                text = text,
+                face = old.face or Font:getFace("smallinfofont"),
+                fgcolor = old.fgcolor or Blitbuffer.COLOR_BLACK,
+            }
+            if old.free then old:free() end
+            break
+        end
+    end
 end
 
 function OPDSGridMenu:_loadVisibleCovers()

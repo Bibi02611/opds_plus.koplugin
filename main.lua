@@ -23,6 +23,8 @@ local SettingsDialogs = require("ui.dialogs.settings_dialogs")
 -- Import state manager
 local StateManager = require("core.state_manager")
 
+local _cached_fonts = nil  -- populated lazily, survives the plugin session
+
 local OPDS = WidgetContainer:extend {
     name = "opdsplus",
     opds_settings_file = DataStorage:getSettingsDir() .. "/opdsplus.lua",
@@ -47,10 +49,11 @@ function OPDS:init()
     -- Initialize state manager singleton
     StateManager.getInstance(self)
 
-    -- Load servers, downloads, and pending syncs
+    -- Load servers, downloads, pending syncs, and series continuation data
     self.servers = self.opds_settings:readSetting("servers", Constants.DEFAULT_SERVERS)
     self.downloads = self.opds_settings:readSetting("downloads", {})
     self.pending_syncs = self.opds_settings:readSetting("pending_syncs", {})
+    self.pending_series = self.opds_settings:readSetting("pending_series", {})
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
@@ -85,75 +88,54 @@ function OPDS:getSetting(key)
 end
 
 function OPDS:getAvailableFonts()
-    local fonts = {}
+    if _cached_fonts then return _cached_fonts end
 
-    -- Add KOReader's built-in UI fonts first
+    local fonts = {}
     table.insert(fonts, { name = "Default UI (Noto Sans)", value = "smallinfofont" })
     table.insert(fonts, { name = "Alternative UI", value = "infofont" })
 
-    -- Scan font directories for available fonts
-    local font_dirs = {
-        "./fonts", -- KOReader's font directory
-    }
-
-    -- Add user's font directory if it exists
+    local font_dirs = { "./fonts" }
     local user_font_dir = DataStorage:getDataDir() .. "/fonts"
     if lfs.attributes(user_font_dir, "mode") == "directory" then
         table.insert(font_dirs, user_font_dir)
     end
 
-    local font_extensions = {
-        [".ttf"] = true,
-        [".otf"] = true,
-        [".ttc"] = true,
-    }
-
-    -- Scan directories for font files
+    local font_extensions = { [".ttf"] = true, [".otf"] = true, [".ttc"] = true }
     local seen_fonts = {}
-    for i, font_dir in ipairs(font_dirs) do
-        if lfs.attributes(font_dir, "mode") == "directory" then
-            for entry in lfs.dir(font_dir) do
-                if entry ~= "." and entry ~= ".." then
-                    local path = font_dir .. "/" .. entry
-                    local mode = lfs.attributes(path, "mode")
 
-                    -- Check if it's a font file
-                    if mode == "file" then
-                        local ext = entry:match("%.([^.]+)$")
-                        if ext then
-                            ext = "." .. ext:lower()
-                            if font_extensions[ext] then
-                                local font_name = entry:match("^(.+)%.")
-                                if font_name and not seen_fonts[font_name] then
-                                    seen_fonts[font_name] = true
-                                    local display_name = font_name:gsub("%-", " "):gsub("_", " ")
-                                    table.insert(fonts, {
-                                        name = display_name,
-                                        value = font_name,
-                                    })
-                                end
+    local function add_font(name)
+        if not seen_fonts[name] then
+            seen_fonts[name] = true
+            table.insert(fonts, {
+                name  = name:gsub("%-", " "):gsub("_", " "),
+                value = name,
+            })
+        end
+    end
+
+    for _, font_dir in ipairs(font_dirs) do
+        if lfs.attributes(font_dir, "mode") == "directory" then
+            local ok, iter, state = pcall(lfs.dir, font_dir)
+            if ok and iter then
+                for entry in iter, state do
+                    if entry ~= "." and entry ~= ".." then
+                        local path = font_dir .. "/" .. entry
+                        local mode = lfs.attributes(path, "mode")
+                        if mode == "file" then
+                            local ext = entry:match("(%.%a+)$")
+                            if ext and font_extensions[ext:lower()] then
+                                local n = entry:match("^(.+)%.")
+                                if n then add_font(n) end
                             end
-                        end
-                        -- Also check subdirectories
-                    elseif mode == "directory" then
-                        local subdir_path = path
-                        for subentry in lfs.dir(subdir_path) do
-                            if subentry ~= "." and subentry ~= ".." then
-                                local subpath = subdir_path .. "/" .. subentry
-                                if lfs.attributes(subpath, "mode") == "file" then
-                                    local ext = subentry:match("%.([^.]+)$")
-                                    if ext then
-                                        ext = "." .. ext:lower()
-                                        if font_extensions[ext] then
-                                            local font_name = subentry:match("^(.+)%.")
-                                            if font_name and not seen_fonts[font_name] then
-                                                seen_fonts[font_name] = true
-                                                local display_name = font_name:gsub("%-", " "):gsub("_", " ")
-                                                table.insert(fonts, {
-                                                    name = display_name,
-                                                    value = font_name,
-                                                })
-                                            end
+                        elseif mode == "directory" then
+                            local ok2, iter2, state2 = pcall(lfs.dir, path)
+                            if ok2 and iter2 then
+                                for sub in iter2, state2 do
+                                    if sub ~= "." and sub ~= ".." then
+                                        local ext2 = sub:match("(%.%a+)$")
+                                        if ext2 and font_extensions[ext2:lower()] then
+                                            local n = sub:match("^(.+)%.")
+                                            if n then add_font(n) end
                                         end
                                     end
                                 end
@@ -165,9 +147,8 @@ function OPDS:getAvailableFonts()
         end
     end
 
-    -- Sort alphabetically by display name
     table.sort(fonts, function(a, b) return a.name < b.name end)
-
+    _cached_fonts = fonts
     return fonts
 end
 
@@ -191,6 +172,7 @@ function OPDS:_createBrowserInstance()
         downloads = self.downloads,
         settings = self.settings,
         pending_syncs = self.pending_syncs,
+        pending_series = self.pending_series,
         title = _("OPDS Plus Catalog"),
         is_popout = false,
         is_borderless = true,
@@ -318,6 +300,60 @@ function OPDS:onFlushSettings()
     if self.updated then
         self.opds_settings:flush()
         self.updated = nil
+    end
+end
+
+function OPDS:onDocumentClose()
+    local doc_path = self.ui and self.ui.document and self.ui.document.file
+    if not doc_path then return end
+
+    local sync_info   = self.pending_syncs  and self.pending_syncs[doc_path]
+    local series_info = self.pending_series and self.pending_series[doc_path]
+    if not sync_info and not series_info then return end
+
+    -- Determine current page and completion state (shared by both branches)
+    local current_page, completed = nil, false
+    local ok_page, page_val = pcall(function()
+        return self.ui.document:getCurrentPage()
+    end)
+    if ok_page and page_val then
+        current_page = page_val
+        local ok_total, total = pcall(function()
+            return self.ui.document:getPageCount()
+        end)
+        if ok_total and total and total > 0 then
+            completed = (page_val >= total)
+        end
+    end
+
+    -- Komga sync: push reading progress
+    if sync_info then
+        self.pending_syncs[doc_path] = nil
+        self.opds_settings:saveSetting("pending_syncs", self.pending_syncs)
+        self.opds_settings:flush()
+        local KomgaSync = require("services.komga_sync")
+        local ok, err = pcall(KomgaSync.updateReadProgress,
+            sync_info.base_url, sync_info.book_id,
+            current_page, completed,
+            sync_info.username, sync_info.password)
+        if not ok then
+            require("logger").dbg("OPDS+: Komga sync push failed:", err)
+        end
+    end
+
+    -- Series continuation: notify when the book is fully read
+    if series_info then
+        self.pending_series[doc_path] = nil
+        self.opds_settings:saveSetting("pending_series", self.pending_series)
+        self.opds_settings:flush()
+        if completed then
+            local T_fn = require("ffi/util").template
+            local InfoMessage = require("ui/widget/infomessage")
+            UIManager:show(InfoMessage:new {
+                text = T_fn(_("Série : %1\nSuivant : %2"), series_info.series, series_info.next_title),
+                timeout = 5,
+            })
+        end
     end
 end
 

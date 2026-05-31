@@ -329,6 +329,18 @@ local FR = {
 	["pages"]                              = "pages",
 	["Author"]                             = "Auteur",
 	["Formats"]                            = "Formats",
+
+	-- ── Offline mode ──────────────────────────────────────────────────────────
+	["Mode hors-ligne : catalogue mis en cache utilisé."]
+		= "Mode hors-ligne : catalogue mis en cache utilisé.",
+
+	-- ── Already downloaded ────────────────────────────────────────────────────
+	["\xe2\x9c\x93 Déjà dans la bibliothèque"] = "\xe2\x9c\x93 Déjà dans la bibliothèque",
+
+	-- ── Komga sync ────────────────────────────────────────────────────────────
+	["Marquer comme lu sur Komga"]             = "Marquer comme lu sur Komga",
+	["Progression mise à jour sur Komga."]     = "Progression mise à jour sur Komga.",
+	["Échec de la synchronisation Komga."]     = "Échec de la synchronisation Komga.",
 }
 
 -- Callable table — same pattern as KOReader's own gettext module.

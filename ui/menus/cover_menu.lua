@@ -4,6 +4,8 @@ local OPDSGridMenu = require("ui.menus.grid_menu")
 local UIManager = require("ui/uimanager")
 local Debug = require("utils.debug")
 local StateManager = require("core.state_manager")
+local CoverLoader = require("services.cover_loader")
+local Constants = require("models.constants")
 
 local OPDSCoverMenu = Menu:extend {
     title_shrink_font_to_fit = true,
@@ -32,6 +34,16 @@ function OPDSCoverMenu:updateItems(select_number)
         self.halt_image_loading = nil
     end
 
+    -- Cancel any scheduled/ongoing prefetch from the previous page
+    if self._scheduled_prefetch then
+        UIManager:unschedule(self._scheduled_prefetch)
+        self._scheduled_prefetch = nil
+    end
+    if self._halt_prefetch then
+        self._halt_prefetch()
+        self._halt_prefetch = nil
+    end
+
     -- Check if any items have cover URLs
     local has_covers = false
     if self.item_table then
@@ -47,6 +59,21 @@ function OPDSCoverMenu:updateItems(select_number)
     local display_mode = StateManager.getInstance():getDisplayMode()
 
     self:_debugLog("updateItems - has_covers:", has_covers, "display_mode:", display_mode)
+
+    -- When switching display modes, free cached covers: each mode renders at different
+    -- dimensions, so a list-sized bb looks blurry when upscaled into a grid cell.
+    -- Freeing here causes covers to reload from disk cache (instant) at the correct size.
+    if has_covers and self._last_display_mode and self._last_display_mode ~= display_mode then
+        self:_debugLog("Mode changed", self._last_display_mode, "→", display_mode, "— freeing cover cache")
+        if self.item_table then
+            for _, item in ipairs(self.item_table) do
+                if item.cover_bb then
+                    item.cover_bb:free()
+                    item.cover_bb = nil
+                end
+            end
+        end
+    end
 
     if has_covers then
         -- Choose between list and grid based on setting
@@ -70,7 +97,9 @@ function OPDSCoverMenu:updateItems(select_number)
             self._last_mode_had_covers = true
             self._last_display_mode = "grid"
 
-            return OPDSGridMenu.updateItems(self, select_number)
+            local result = OPDSGridMenu.updateItems(self, select_number)
+            self:_schedulePrefetch()
+            return result
         else
             -- Use list view
             self:_debugLog("Using OPDSListMenu (list mode)")
@@ -96,7 +125,9 @@ function OPDSCoverMenu:updateItems(select_number)
             self._last_display_mode = "list"
 
             -- Call OPDSListMenu's updateItems directly
-            return OPDSListMenu.updateItems(self, select_number)
+            local result = OPDSListMenu.updateItems(self, select_number)
+            self:_schedulePrefetch()
+            return result
         end
     else
         -- Use standard Menu for items without covers
@@ -122,6 +153,16 @@ function OPDSCoverMenu:updateItems(select_number)
     end
 end
 
+-- Schedule a background prefetch of the next page's covers.
+-- Runs after COVER_PREFETCH_DELAY_SECONDS so the current page loads first.
+function OPDSCoverMenu:_schedulePrefetch()
+    self._scheduled_prefetch = function()
+        self._scheduled_prefetch = nil
+        CoverLoader.prefetchAdjacentCovers(self)
+    end
+    UIManager:scheduleIn(Constants.LAYOUT.COVER_PREFETCH_DELAY_SECONDS, self._scheduled_prefetch)
+end
+
 function OPDSCoverMenu:onCloseWidget()
     -- Cancel any scheduled cover loading
     if self._scheduled_cover_load then
@@ -133,6 +174,16 @@ function OPDSCoverMenu:onCloseWidget()
     if self.halt_image_loading then
         self.halt_image_loading()
         self.halt_image_loading = nil
+    end
+
+    -- Cancel any scheduled/ongoing prefetch
+    if self._scheduled_prefetch then
+        UIManager:unschedule(self._scheduled_prefetch)
+        self._scheduled_prefetch = nil
+    end
+    if self._halt_prefetch then
+        self._halt_prefetch()
+        self._halt_prefetch = nil
     end
 
     -- Check if we have cover-related items

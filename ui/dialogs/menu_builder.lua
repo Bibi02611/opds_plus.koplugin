@@ -136,6 +136,16 @@ function OPDSMenuBuilder.buildFacetMenu(browser, catalog_url, has_covers)
 			align = "left",
 		} })
 	end
+
+	-- Full catalog archive for offline use (visible at every catalog level)
+	table.insert(buttons, { {
+		text = _("Archiver pour mode avion"),
+		callback = function()
+			UIManager:close(dialog)
+			browser:archiveFullCatalog()
+		end,
+		align = "left",
+	} })
 	table.insert(buttons, {})
 
 	-- Add search option if available
@@ -241,6 +251,16 @@ function OPDSMenuBuilder.buildCatalogMenu(browser, catalog_url, has_covers)
 			align = "left",
 		} })
 	end
+
+	-- Full catalog archive for offline use (visible at every catalog level)
+	table.insert(buttons, { {
+		text = _("Archiver pour mode avion"),
+		callback = function()
+			UIManager:close(dialog)
+			browser:archiveFullCatalog()
+		end,
+		align = "left",
+	} })
 
 	dialog = ButtonDialog:new {
 		buttons = buttons,

@@ -99,24 +99,25 @@ function OPDSBrowser:toggleViewMode()
 
     self:_debugLog("Toggling view mode from", current_mode, "to", new_mode)
 
-    -- Show notification
+    -- Show notification (2 s — e-ink refresh takes ~300 ms, 1 s is too brief to read)
     local mode_text = new_mode == "grid" and _("Grid View") or _("List View")
     UIManager:show(InfoMessage:new {
         text = T(_("Switched to %1"), mode_text),
-        timeout = 1,
+        timeout = 2,
     })
 
-    -- Refresh the current view WITHOUT breaking navigation or auth context
-    if #self.paths > 0 then
-        -- We're in a catalog - get current URL
-        local current_path = self.paths[#self.paths]
-        local current_url = current_path.url
+    -- Remember the first visible item so we can land on the equivalent page after
+    -- the mode switch (perpage differs between list and grid).
+    -- Passing first_item_idx as select_number lets Menu.updateItems() compute the
+    -- correct page in one shot — avoids a second updateItems() call and second e-ink flash.
+    local first_item_idx = self.page and self.perpage
+        and ((self.page - 1) * self.perpage + 1) or 1
 
-        -- Reload the catalog with same URL
-        self:updateCatalog(current_url, true)
+    if #self.paths > 0 then
+        local current_url = self.paths[#self.paths].url
+        self:updateCatalog(current_url, true, first_item_idx)
     else
-        -- We're at root level - just switch the display mode
-        self:switchItemTable(self.catalog_title, self.item_table, -1)
+        self:switchItemTable(self.catalog_title, self.item_table, first_item_idx)
     end
 end
 
@@ -141,6 +142,88 @@ function OPDSBrowser:showCatalogMenu()
 
     local dialog = OPDSMenuBuilder.buildCatalogMenu(self, catalog_url, has_covers)
     UIManager:show(dialog)
+end
+
+-- Archive the full catalog tree for offline use.
+-- BFS walk: follows both "next" pagination and sub-catalog navigation links
+-- up to 2 levels deep, so it works from any catalog level (root, series list,
+-- individual series).  Shows a progress dialog with a Cancel button.
+function OPDSBrowser:archiveFullCatalog()
+    local catalog_url = self.paths and self.paths[#self.paths] and self.paths[#self.paths].url
+    if not catalog_url then return end
+
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local ConfirmBox   = require("ui/widget/confirmbox")
+    local OfflinePack  = require("services.offline_pack")
+
+    local cancel_fn       = nil
+    local progress_dialog = nil
+
+    local function closeProgress()
+        if progress_dialog then
+            UIManager:close(progress_dialog)
+            progress_dialog = nil
+        end
+    end
+
+    local function showProgress(text)
+        closeProgress()
+        progress_dialog = ButtonDialog:new {
+            title = text,
+            buttons = { { {
+                text = _("Annuler"),
+                callback = function()
+                    if cancel_fn then cancel_fn() end
+                    closeProgress()
+                end,
+            } } },
+        }
+        UIManager:show(progress_dialog)
+        UIManager:forceRePaint()
+    end
+
+    local function startArchive()
+        NetworkMgr:runWhenConnected(function()
+            showProgress(_("Analyse du catalogue…"))
+
+            cancel_fn = OfflinePack.start {
+                start_url = catalog_url,
+                username  = self.root_catalog_username,
+                password  = self.root_catalog_password,
+                max_depth = 2,    -- root → sections → series → books with covers
+                max_pages = 1000, -- hard cap to prevent runaway on huge libraries
+
+                on_progress = function(phase, done, total)
+                    if phase == "pages" then
+                        showProgress(T(_("Pages : %1  ·  %2 couvertures trouvées…"), done, total))
+                    else
+                        showProgress(T(_("Couvertures : %1 / %2…"), done, total))
+                    end
+                end,
+
+                on_done = function(pages, total_covers, new_covers)
+                    closeProgress()
+                    UIManager:show(InfoMessage:new {
+                        text = T(
+                            _("Archivage terminé !\n%1 pages  ·  %2 couvertures  (%3 nouvelles)"),
+                            pages, total_covers, new_covers),
+                        timeout = 5,
+                    })
+                end,
+
+                on_cancel = function()
+                    closeProgress()
+                end,
+            }
+        end)
+    end
+
+    -- Warn before a potentially long operation
+    UIManager:show(ConfirmBox:new {
+        text = _("Archiver ce catalogue pour le mode avion ?\n\nToutes les pages et couvertures accessibles depuis ce niveau seront mises en cache (jusqu'à 1000 pages, 2 niveaux de profondeur).\n\nCela peut prendre plusieurs minutes pour une grande bibliothèque."),
+        ok_text = _("Archiver"),
+        ok_callback = startArchive,
+    })
 end
 
 function OPDSBrowser:genItemTableFromRoot()
@@ -220,8 +303,8 @@ function OPDSBrowser:genItemTableFromCatalog(catalog, item_url)
     return item_table
 end
 
-function OPDSBrowser:updateCatalog(item_url, paths_updated)
-    return NavigationHandler.updateCatalog(item_url, self, paths_updated)
+function OPDSBrowser:updateCatalog(item_url, paths_updated, select_number)
+    return NavigationHandler.updateCatalog(item_url, self, paths_updated, select_number)
 end
 
 function OPDSBrowser:appendCatalog(item_url)
@@ -292,10 +375,21 @@ function OPDSBrowser:onMenuSelect(item)
         else
             self.catalog_title = item.text or self.catalog_title or self.root_catalog_title
             connect_callback = function()
+                -- Show a loading indicator for the duration of the network/parse call.
+                local loading = InfoMessage:new { text = _("Chargement…") }
+                UIManager:show(loading)
+                UIManager:forceRePaint()
                 self:updateCatalog(item.url)
+                UIManager:close(loading)
             end
         end
-        NetworkMgr:runWhenConnected(connect_callback)
+        -- Bypass the "enable WiFi?" dialog when a disk-cached feed is available.
+        -- parseFeed will detect the offline state and serve from cache directly.
+        if not item.searchable and FeedFetcher.hasOfflineCache(item.url) then
+            connect_callback()
+        else
+            NetworkMgr:runWhenConnected(connect_callback)
+        end
     end
     return true
 end

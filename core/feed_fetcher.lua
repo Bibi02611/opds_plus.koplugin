@@ -3,9 +3,12 @@
 
 local BD = require("ui/bidi")
 local Cache = require("cache")
+local DataStorage = require("datastorage")
 local InfoMessage = require("ui/widget/infomessage")
+local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local http = require("socket.http")
+local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 local ltn12 = require("ltn12")
 local socket = require("socket")
@@ -21,10 +24,46 @@ local Result = require("utils.result")
 
 local FeedFetcher = {}
 
--- Create the catalog cache
+-- In-memory catalog cache (keyed by URL + Last-Modified header)
 local CatalogCache = Cache:new {
 	slots = Constants.CACHE_SLOTS,
 }
+
+-- Disk-based offline cache directory
+local OFFLINE_CACHE_DIR = DataStorage:getDataDir() .. "/cache/opds_plus/offline"
+
+-- Map a URL to a filesystem-safe filename inside OFFLINE_CACHE_DIR.
+-- Sanitize non-alphanumeric chars, cap at 180 chars, append URL length to avoid
+-- collisions between two URLs that share the same first 180 sanitized chars.
+local function offlineCachePath(url)
+	local sanitized = (url or ""):gsub("[^%w%-_%.%~]", "_")
+	local len_tag = "_L" .. tostring(#(url or ""))
+	if #sanitized > 180 then sanitized = sanitized:sub(1, 180) end
+	return OFFLINE_CACHE_DIR .. "/" .. sanitized .. len_tag .. ".xml"
+end
+
+local function readOfflineCache(url)
+	local path = offlineCachePath(url)
+	local ok, f = pcall(io.open, path, "r")
+	if not ok or not f then return nil end
+	local content = f:read("*a")
+	f:close()
+	return (content and content ~= "") and content or nil
+end
+
+local function writeOfflineCache(url, content)
+	FileUtils.makeDirectory(OFFLINE_CACHE_DIR)
+	local path = offlineCachePath(url)
+	local ok, f = pcall(io.open, path, "w")
+	if not ok or not f then return end
+	f:write(content)
+	f:close()
+end
+
+-- Public: true if a disk-cached feed exists for this URL (survives restarts).
+function FeedFetcher.hasOfflineCache(url)
+	return lfs.attributes(offlineCachePath(url), "mode") == "file"
+end
 
 -- Fetch raw XML feed from URL
 -- @param item_url string URL to fetch from
@@ -104,6 +143,23 @@ end
 -- @param debug_callback function|nil Optional debug logging callback
 -- @return table Parsed feed or nil on error
 function FeedFetcher.parseFeed(item_url, username, password, debug_callback)
+	-- Fast offline path: skip all network I/O when the device has no connection.
+	local net_ok, is_connected = pcall(function() return NetworkMgr:isConnected() end)
+	if not (net_ok and is_connected) then
+		local cached = readOfflineCache(item_url)
+		if cached then
+			logger.info("OPDS: offline, serving disk cache for", item_url)
+			UIManager:show(InfoMessage:new {
+				text = _("Mode hors-ligne : catalogue mis en cache utilisé."),
+				timeout = 3,
+			})
+			return OPDSParser:parse(cached)
+		end
+		-- No cache and no network — caller will show an appropriate error.
+		return nil
+	end
+
+	-- Network is available: try to fetch a fresh feed.
 	local headers = FeedFetcher.fetchFeed(item_url, true, username, password)
 	local feed_last_modified = headers and headers["last-modified"]
 	local feed
@@ -112,26 +168,37 @@ function FeedFetcher.parseFeed(item_url, username, password, debug_callback)
 		local hash = "opds|catalog|" .. item_url .. "|" .. feed_last_modified
 		feed = CatalogCache:check(hash)
 		if feed then
-			if debug_callback then
-				debug_callback("Cache hit for", item_url)
-			end
+			if debug_callback then debug_callback("Cache hit for", item_url) end
 		else
-			if debug_callback then
-				debug_callback("Cache miss, fetching", item_url)
-			end
+			if debug_callback then debug_callback("Cache miss, fetching", item_url) end
 			feed = FeedFetcher.fetchFeed(item_url, false, username, password)
 			if feed then
 				CatalogCache:insert(hash, feed)
+				writeOfflineCache(item_url, feed)
 			end
 		end
 	else
 		feed = FeedFetcher.fetchFeed(item_url, false, username, password)
+		if feed then
+			writeOfflineCache(item_url, feed)
+		end
+	end
+
+	-- Network fetch failed (timeout, HTTP error, etc.) — try disk fallback.
+	if not feed then
+		feed = readOfflineCache(item_url)
+		if feed then
+			logger.info("OPDS: network error, serving disk cache for", item_url)
+			UIManager:show(InfoMessage:new {
+				text = _("Mode hors-ligne : catalogue mis en cache utilisé."),
+				timeout = 3,
+			})
+		end
 	end
 
 	if feed then
 		return OPDSParser:parse(feed)
 	end
-
 	return nil
 end
 
@@ -242,15 +309,31 @@ function FeedFetcher.genItemTableFromURL(item_url, username, password, debug_cal
 	return catalog_parser(catalog, item_url)
 end
 
--- Clear the catalog cache
+-- Clear the catalog cache (in-memory) and the disk-based offline cache.
 function FeedFetcher.clearCache()
 	CatalogCache:clear()
+	local ok, iter, state = pcall(lfs.dir, OFFLINE_CACHE_DIR)
+	if ok and iter then
+		for entry in iter, state do
+			if entry ~= "." and entry ~= ".." then
+				os.remove(OFFLINE_CACHE_DIR .. "/" .. entry)
+			end
+		end
+	end
 end
 
--- Get cache statistics
--- @return number, number Used slots, total slots
+-- Get cache statistics: (used, total) counts combining in-memory and disk entries.
 function FeedFetcher.getCacheStats()
-	return CatalogCache:used_size(), CatalogCache.slots
+	local disk_count = 0
+	local ok, iter, state = pcall(lfs.dir, OFFLINE_CACHE_DIR)
+	if ok and iter then
+		for entry in iter, state do
+			if entry ~= "." and entry ~= ".." and entry:match("%.xml$") then
+				disk_count = disk_count + 1
+			end
+		end
+	end
+	return CatalogCache:used_size() + disk_count, CatalogCache.slots + disk_count
 end
 
 return FeedFetcher

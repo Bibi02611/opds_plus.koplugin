@@ -67,6 +67,18 @@ local Constants = {
 		DUPLICATE_NOTIFICATION_TIMEOUT = 3,
 		DOWNLOAD_SCHEDULE_DELAY = 1,
 		IMAGE_BATCH_DELAY = 0.2,
+		COVER_LOAD_DELAY_SECONDS = 0.3,
+	},
+
+	-- Layout tuning
+	LAYOUT = {
+		COVER_LOAD_DELAY_SECONDS   = 0.3,  -- was hardcoded 1 s in menus
+		COVER_PREFETCH_DELAY_SECONDS = 2.0, -- delay before starting next-page prefetch
+		UI_ESTIMATED_OVERHEAD_PX   = 100,  -- title bar + page info height estimate
+		LIST_WHITESPACE_RATIO      = 0.7,  -- squeeze-in threshold for list view
+		GRID_WHITESPACE_RATIO      = 0.6,  -- squeeze-in threshold for grid view
+		COVER_CACHE_PRUNE_RATIO    = 1.1,  -- only prune disk cache when 110% full
+		SERIES_ICON                = "\xE2\x96\xB8 ", -- U+25B8 ▸ (replaces 📚 emoji)
 	},
 
 	-- Cache Configuration

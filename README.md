@@ -11,11 +11,51 @@
 
 # OPDS Plus - Enhanced OPDS Browser for KOReader
 
-**Version:** 1.3.1
+**Version:** 1.4.0
 
 **OPDS Plus** is a feature-rich enhancement of KOReader's built-in OPDS catalog browser, providing visual book cover displays, multiple viewing modes, and extensive customization options for browsing online book catalogs.
 
 ## ✨ Features
+
+### ✅ Already-Downloaded Badge *(New in 1.4.0)*
+
+- Books already present in your download folder are marked with a **✓** prefix in both list and grid views, as well as in the book info dialog title — no more re-downloading books you already own
+- Detection is best-effort: derived from the acquisition URL filename compared to files in the configured download directory
+
+### 📡 Offline Browsing *(New in 1.4.0)*
+
+- OPDS feeds are now cached to disk independently of network availability
+- When a catalog cannot be reached, the plugin transparently serves the last known feed with an info banner: *"Mode hors-ligne : catalogue mis en cache utilisé"*
+- Offline cache is separate from the cover image cache and has its own slot allocation
+
+### 🔗 Komga Read-Progress Sync *(New in 1.4.0)*
+
+- Automatic detection of Komga OPDS servers (`/opds/v1.2` endpoint pattern)
+- When KOReader finishes (or marks as read) a book downloaded from a Komga catalog, read progress is pushed back to Komga via its REST API (`/api/v1/books/{id}/read-progress`) using the same Basic-auth credentials as the OPDS session
+- Supports both page-level progress and completion status
+- Silent failure if the server is unreachable — never blocks the UI
+
+### ⚡ Performance & Memory Improvements *(New in 1.4.0)*
+
+- **Cover cache pruning throttle**: `pruneToMaxBytes` is now only triggered when the cache exceeds 110% of the quota — eliminates the `lfs.dir()` full scan that ran on every single cover write
+- **Stale cover-load callbacks**: `UIManager:unschedule()` is now called before overwriting `_scheduled_cover_load` — fast page turns no longer leave orphaned callbacks pointing at rebuilt widgets
+- **Configurable cover load delay**: delay moved to `Constants.LAYOUT.COVER_LOAD_DELAY_SECONDS` (0.3 s) instead of a hardcoded 1 s — snappier cover rendering on fast connections
+- **Lightweight `update()`**: cover refresh in list and grid items now only swaps the inner cover widget and issues a `"partial"` e-ink refresh instead of rebuilding the entire item row — eliminates full-screen flicker on cover load
+- **Module-level requires**: `TopContainer`, `LineWidget`, and `Constants` are required once at module load rather than inside each item constructor
+
+### 🛠️ Code Quality & Robustness *(New in 1.4.0)*
+
+- **Layout magic numbers extracted** to `Constants.LAYOUT` (whitespace ratios, series icon, cache prune ratio, cover load delay) — single source of truth
+- **Shared `_items_to_update` table** replaced with a `nil`-initialized class-level field — prevents phantom updates leaking across page loads
+- **`Font:getFace()` double call eliminated** in list items — title face computed once and reused for height calculation
+- **Series icon** changed from emoji `📚` to Unicode arrow `▸` (U+25B8) — renders correctly on all e-ink fonts without emoji fallback issues
+
+### 🗺️ UI Improvements *(New in 1.4.0)*
+
+- **Cleaner page indicator**: list view shows `≡  N / M`, grid view shows `▦  N / M (X col.)` — removed the confusing `(X items)` count that duplicated what the list already showed
+- **Series prefix uses `▸`** instead of the emoji `📚` — consistent, reliable rendering on e-ink displays
+
+---
 
 ### 🌍 French Translation *(New in 1.3.1)*
 
@@ -358,7 +398,7 @@ Contributions are welcome! Here's how you can help:
 
 - **Original OPDS Plugin**: KOReader development team
 - **Enhancement Development**: greywolf1499
-- **v1.3.x improvements**: Bibi02611
+- **v1.3.x / v1.4.x improvements**: Bibi02611
 - Built upon the excellent [KOReader](https://github.com/koreader/koreader) e-reader software
 
 ## 📜 License
@@ -374,6 +414,18 @@ See the [LICENSE](LICENSE) file for details.
 - **OPDS Specification**: [OPDS Spec](https://specs.opds.io/)
 
 ## 🔄 Version History
+
+### v1.4.0
+- **Already-downloaded badge**: books present in the download folder are prefixed with ✓ in list view, grid view, and the book info dialog — detected via acquisition URL filename vs local `lfs.attributes` check
+- **Offline browsing**: failed network requests now fall back transparently to a disk-cached feed; info banner shown to the user (`OfflineCache`, independent of cover cache)
+- **Komga read-progress sync**: detects Komga OPDS servers and pushes read progress/completion back via `/api/v1/books/{id}/read-progress` REST endpoint using the same Basic-auth credentials (`services/komga_sync.lua`)
+- **Cover cache pruning throttle**: `pruneToMaxBytes` only runs when cache exceeds 110% of quota — eliminates `lfs.dir()` scan on every cover write
+- **Stale cover-load callbacks fixed**: `UIManager:unschedule()` called before overwriting `_scheduled_cover_load`
+- **Lightweight `update()`**: cover swap in list/grid items now only replaces inner widget + issues `"partial"` refresh instead of full row rebuild
+- **Cover load delay**: reduced from 1 s to 0.3 s (via `Constants.LAYOUT.COVER_LOAD_DELAY_SECONDS`)
+- **Layout constants**: whitespace ratios, series icon, prune ratio centralized in `Constants.LAYOUT`
+- **Page indicator**: `≡  N / M` (list) and `▦  N / M (X col.)` (grid) — removed confusing item-count suffix
+- **Series icon**: `📚` → `▸` (U+25B8) for reliable e-ink rendering
 
 ### v1.3.1
 - **French translation**: all plugin-specific UI strings translated — queue, folder controls, series detection, grid/cover/font settings, error messages and more (`utils/locale.lua`, callable table with ~200 strings, graceful fallback to KOReader gettext)
