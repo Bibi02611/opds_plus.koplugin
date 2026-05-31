@@ -500,4 +500,185 @@ function OPDSBrowser:checkSyncDownload(idx)
     SyncManager.checkAndStartSync(self, idx)
 end
 
+-- Fetch all pages of the current catalog and add every downloadable book to the queue.
+-- Shows format picker when multiple formats exist, then a confirmation before queuing.
+function OPDSBrowser:queueAllInCatalog()
+    local catalog_url = self.paths[#self.paths] and self.paths[#self.paths].url
+    if not catalog_url then return end
+
+    -- Proposed subfolder: session default if already set, otherwise current catalog title
+    local proposed_subfolder = self._default_download_subfolder or self.catalog_title
+
+    -- Scan currently loaded items to discover available formats
+    local format_counts = {}
+    for _, item in ipairs(self.item_table) do
+        if item.acquisitions then
+            for _, acq in ipairs(item.acquisitions) do
+                if not acq.count and acq.type ~= "borrow" then
+                    local ft = DownloadManager.getFiletype(acq)
+                    if ft then
+                        format_counts[ft] = (format_counts[ft] or 0) + 1
+                    end
+                end
+            end
+        end
+    end
+
+    if next(format_counts) == nil then
+        UIManager:show(InfoMessage:new {
+            text = _("No downloadable books found in current view."),
+            timeout = 3,
+        })
+        return
+    end
+
+    -- Sort formats by frequency (most common first)
+    local formats = {}
+    for ft, count in pairs(format_counts) do
+        table.insert(formats, { filetype = ft, count = count })
+    end
+    table.sort(formats, function(a, b) return a.count > b.count end)
+
+    -- Fetch all pages then show confirmation and queue
+    local function fetchAndQueue(chosen_filetype)
+        local fetch_info = InfoMessage:new { text = _("Fetching series pages…") }
+        UIManager:show(fetch_info)
+        UIManager:forceRePaint()
+
+        -- Collect items from every page of the catalog
+        local all_items = {}
+        local context = BrowserContext.fromBrowser(self)
+        local debug_cb = function(...) self:_debugLog(...) end
+
+        for _, item in ipairs(self.item_table) do   -- items already in memory
+            table.insert(all_items, item)
+        end
+
+        local next_url = self.item_table.hrefs and self.item_table.hrefs.next
+        local page_cap = 50  -- safety limit
+        local pages_fetched = 0
+        while next_url and pages_fetched < page_cap do
+            pages_fetched = pages_fetched + 1
+            local page_items = FeedFetcher.genItemTableFromURL(
+                next_url,
+                context.username,
+                context.password,
+                debug_cb,
+                function(catalog, u)
+                    -- Use genItemTableFromCatalog without touching browser state
+                    local items = NavigationHandler.genItemTableFromCatalog(
+                        catalog, u, context, debug_cb)
+                    return items
+                end
+            )
+            if not page_items or #page_items == 0 then break end
+            for _, item in ipairs(page_items) do
+                table.insert(all_items, item)
+            end
+            next_url = page_items.hrefs and page_items.hrefs.next
+        end
+
+        UIManager:close(fetch_info)
+
+        -- Keep only items that have the chosen format
+        local to_queue = {}
+        for _, item in ipairs(all_items) do
+            if item.acquisitions then
+                for _, acq in ipairs(item.acquisitions) do
+                    if not acq.count and acq.type ~= "borrow" then
+                        if DownloadManager.getFiletype(acq) == chosen_filetype then
+                            table.insert(to_queue, { item = item, acq = acq })
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        if #to_queue == 0 then
+            UIManager:show(InfoMessage:new {
+                text = T(_("No %1 books found."), string.upper(chosen_filetype)),
+                timeout = 3,
+            })
+            return
+        end
+
+        local subfolder_line = proposed_subfolder
+            and ("\n" .. _("Folder: ") .. proposed_subfolder)
+            or ""
+        UIManager:show(ConfirmBox:new {
+            text = T(_("Queue %1 books (%2)?%3"),
+                #to_queue, string.upper(chosen_filetype), subfolder_line),
+            ok_text = _("Queue all"),
+            ok_callback = function()
+                -- Lock in the subfolder for the session if not already explicit
+                if not self._default_download_subfolder
+                        and proposed_subfolder and proposed_subfolder ~= "" then
+                    self._default_download_subfolder =
+                        util.replaceAllInvalidChars(proposed_subfolder)
+                end
+
+                for _, dl in ipairs(to_queue) do
+                    local filename = dl.item.title
+                    if dl.item.author then
+                        filename = dl.item.author .. " - " .. filename
+                    end
+                    filename = filename and util.replaceAllInvalidChars(filename) or nil
+
+                    local local_path = DownloadManager.getLocalDownloadPath(
+                        self, filename, chosen_filetype, dl.acq.href)
+                    DownloadManager.addToDownloadQueue(self, {
+                        file     = local_path,
+                        url      = dl.acq.href,
+                        info     = type(dl.item.content) == "string"
+                                    and util.htmlToPlainTextIfHtml(dl.item.content) or "",
+                        catalog  = self.root_catalog_title,
+                        username = self.root_catalog_username,
+                        password = self.root_catalog_password,
+                    })
+                end
+
+                UIManager:show(InfoMessage:new {
+                    text = T(_("%1 books added to queue."), #to_queue),
+                    timeout = 3,
+                })
+            end,
+        })
+    end
+
+    -- Single format → straight to fetch; multiple formats → picker first
+    if #formats == 1 then
+        NetworkMgr:runWhenConnected(function()
+            fetchAndQueue(formats[1].filetype)
+        end)
+    else
+        local format_dialog
+        local fmt_buttons = {}
+        for _, fmt in ipairs(formats) do
+            local ft = fmt.filetype
+            table.insert(fmt_buttons, { {
+                text = string.upper(ft),
+                callback = function()
+                    UIManager:close(format_dialog)
+                    NetworkMgr:runWhenConnected(function()
+                        fetchAndQueue(ft)
+                    end)
+                end,
+                align = "left",
+            } })
+        end
+        table.insert(fmt_buttons, {})
+        table.insert(fmt_buttons, { {
+            text = _("Cancel"),
+            callback = function() UIManager:close(format_dialog) end,
+            align = "left",
+        } })
+        format_dialog = ButtonDialog:new {
+            title = _("Queue all — select format"),
+            buttons = fmt_buttons,
+        }
+        UIManager:show(format_dialog)
+    end
+end
+
 return OPDSBrowser

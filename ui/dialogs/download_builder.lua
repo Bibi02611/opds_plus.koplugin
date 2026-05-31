@@ -236,6 +236,77 @@ function DownloadDialogBuilder.buildDownloadListMenu(download_list_browser)
 					end,
 				},
 			},
+			{
+				{
+					-- Session base folder (e.g. /BD/ or /livres/)
+					text = (function()
+						local DownloadManager = require("core.download_manager")
+						local d = DownloadManager.getCurrentDownloadDir(download_list_browser._manager)
+						return d and (d:match("[^/]+/?$") or d) or _("Base folder…")
+					end)(),
+					callback = function()
+						UIManager:close(dialog)
+						local browser = download_list_browser._manager
+						local DownloadManager = require("core.download_manager")
+						require("ui/downloadmgr"):new {
+							onConfirm = function(path)
+								browser._session_download_dir = path
+							end,
+						}:chooseDir(DownloadManager.getCurrentDownloadDir(browser))
+					end,
+				},
+				{
+					-- Subfolder name within the base folder
+					text = (function()
+						local sf = download_list_browser._manager._default_download_subfolder
+						return sf and sf or _("Subfolder…")
+					end)(),
+					callback = function()
+						UIManager:close(dialog)
+						local browser = download_list_browser._manager
+						local current = browser._default_download_subfolder or ""
+						local subfolder_dialog
+						subfolder_dialog = InputDialog:new {
+							title = _("Subfolder name"),
+							input = current,
+							input_hint = _("Series name"),
+							buttons = {
+								{
+									{
+										text = _("Cancel"),
+										id = "close",
+										callback = function()
+											UIManager:close(subfolder_dialog)
+										end,
+									},
+									{
+										text = _("Clear"),
+										callback = function()
+											browser._default_download_subfolder = nil
+											UIManager:close(subfolder_dialog)
+										end,
+									},
+									{
+										text = _("Set"),
+										is_enter_default = true,
+										callback = function()
+											local val = subfolder_dialog:getInputText()
+											if val and val ~= "" then
+												browser._default_download_subfolder = util.replaceAllInvalidChars(val)
+											else
+												browser._default_download_subfolder = nil
+											end
+											UIManager:close(subfolder_dialog)
+										end,
+									},
+								}
+							},
+						}
+						UIManager:show(subfolder_dialog)
+						subfolder_dialog:onShowKeyboard()
+					end,
+				},
+			},
 		},
 		shrink_unneeded_width = true,
 		anchor = function()

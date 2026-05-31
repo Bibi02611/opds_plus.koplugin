@@ -124,6 +124,18 @@ function OPDSMenuBuilder.buildFacetMenu(browser, catalog_url, has_covers)
 		end,
 		align = "left",
 	} })
+
+	-- Queue all books in series (only when viewing a book list)
+	if OPDSMenuBuilder.hasBooks(browser.item_table) then
+		table.insert(buttons, { {
+			text = _("Queue all in series"),
+			callback = function()
+				UIManager:close(dialog)
+				browser:queueAllInCatalog()
+			end,
+			align = "left",
+		} })
+	end
 	table.insert(buttons, {})
 
 	-- Add search option if available
@@ -217,6 +229,18 @@ function OPDSMenuBuilder.buildCatalogMenu(browser, catalog_url, has_covers)
 		end,
 		align = "left",
 	} })
+
+	-- Queue all books in series (only when viewing a book list)
+	if OPDSMenuBuilder.hasBooks(browser.item_table) then
+		table.insert(buttons, { {
+			text = _("Queue all in series"),
+			callback = function()
+				UIManager:close(dialog)
+				browser:queueAllInCatalog()
+			end,
+			align = "left",
+		} })
+	end
 
 	dialog = ButtonDialog:new {
 		buttons = buttons,
@@ -419,6 +443,25 @@ function OPDSMenuBuilder.hasCovers(item_table)
 	for _, item in ipairs(item_table or {}) do
 		if item.cover_url then
 			return true
+		end
+	end
+	return false
+end
+
+-- Check if current item table contains downloadable books (not only sub-catalogs)
+-- @param item_table table Table of catalog items
+-- @return boolean True if at least one item is a downloadable book
+function OPDSMenuBuilder.hasBooks(item_table)
+	local DownloadManager = require("core.download_manager")
+	for _, item in ipairs(item_table or {}) do
+		if item.acquisitions then
+			for _, acq in ipairs(item.acquisitions) do
+				if not acq.count and acq.type ~= "borrow" then
+					if DownloadManager.getFiletype(acq) then
+						return true
+					end
+				end
+			end
 		end
 	end
 	return false

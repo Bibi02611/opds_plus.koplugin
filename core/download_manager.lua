@@ -47,7 +47,12 @@ function DownloadManager.getCurrentDownloadDir(browser)
 	if browser.sync then
 		return browser.settings.sync_dir
 	else
-		return G_reader_settings:readSetting("download_dir") or G_reader_settings:readSetting("lastdir")
+		-- Session-level override (set by user in OPDS+ for this session) takes
+		-- priority over the global KOReader download_dir so that BD vs livres
+		-- base folders can be switched without touching global settings.
+		return browser._session_download_dir
+			or G_reader_settings:readSetting("download_dir")
+			or G_reader_settings:readSetting("lastdir")
 	end
 end
 
@@ -65,15 +70,15 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	logger.warn("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
 		" filetype=", filetype or "(nil)", " url=", remote_url or "(nil)")
 
-	-- ── Step 2 : series detection ────────────────────────────────────────────
-	-- browser._download_series is set by BookInfoDialog from item.series (OPDS
-	-- explicit field) or catalog_title (current Komga series context).
-	-- It is already decoded by UrlUtils.decodeFilename at storage time.
-	local series_name = browser._download_series
+	-- ── Step 2 : series/folder detection ────────────────────────────────────────
+	-- Priority 1: browser._default_download_subfolder — set explicitly by the user
+	--             for the session; applies to all books until changed or cleared.
+	-- Priority 2: browser._download_series — auto-detected from item metadata
+	--             (set by BookInfoDialog; may be wrong for edge cases).
+	local series_name = browser._default_download_subfolder or browser._download_series
 	if series_name and series_name ~= "" then
-		-- Sanitize for filesystem (replaces chars invalid on Linux/reMarkable)
 		series_name = util.replaceAllInvalidChars(series_name)
-		logger.warn("[OPDS Plus] Dossier de série détecté : " .. series_name)
+		logger.warn("[OPDS Plus] Dossier cible : " .. series_name)
 	else
 		series_name = nil
 	end
@@ -123,13 +128,32 @@ function DownloadManager.downloadFile(browser, local_path, remote_url, username,
 	local parsed = url.parse(remote_url)
 
 	if parsed.scheme == "http" or parsed.scheme == "https" then
+		-- Ensure the target directory exists. This is defensive: it was created
+		-- at queue-build time in the main process, but the download may run in a
+		-- subprocess where a prior mkdir failure would silently leave no directory.
+		local target_dir = local_path:match("^(.+)/[^/]+$")
+		if target_dir then
+			FileUtils.makeDirectory(target_dir)
+		end
+
+		local file_handle, open_err = io.open(local_path, "w")
+		if not file_handle then
+			logger.warn("[OPDS Plus] downloadFile: cannot open for writing:", local_path, open_err)
+			-- Show error only in main-process context (single-book download)
+			UIManager:show(InfoMessage:new {
+				text = T(_("Cannot create file:\n%1\n%2"),
+					BD.filepath(local_path), open_err or ""),
+			})
+			return false
+		end
+
 		socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
 		code, headers, status = socket.skip(1, http.request {
 			url      = remote_url,
 			headers  = {
 				["Accept-Encoding"] = "identity",
 			},
-			sink     = ltn12.sink.file(io.open(local_path, "w")),
+			sink     = ltn12.sink.file(file_handle),
 			user     = username,
 			password = password,
 		})

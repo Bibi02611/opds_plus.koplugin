@@ -595,6 +595,89 @@ function BookInfoDialog.build(browser, item)
 		end
 
 		table.insert(buttons_table, action_row)
+
+		-- Two-button row showing the full effective destination.
+		-- Left button  → choose base folder (session override, does not touch global KOReader setting)
+		-- Right button → edit the subfolder name
+		local function getBaseDirLabel()
+			local d = browser._session_download_dir
+				or G_reader_settings:readSetting("download_dir")
+				or G_reader_settings:readSetting("lastdir")
+				or "?"
+			-- Show only the last path component so it fits in the button
+			return d:match("[^/]+/?$") or d
+		end
+
+		local function getSubfolderLabel()
+			if browser._default_download_subfolder then
+				return browser._default_download_subfolder
+			elseif auto_series then
+				return auto_series .. " " .. T_get("(auto)")
+			else
+				return T_get("(none)")
+			end
+		end
+
+		table.insert(buttons_table, {
+			-- Left: base directory
+			{
+				text = getBaseDirLabel(),
+				callback = function()
+					require("ui/downloadmgr"):new {
+						onConfirm = function(path)
+							logger.dbg("Session download dir set to", path)
+							browser._session_download_dir = path
+						end,
+					}:chooseDir(DownloadManager.getCurrentDownloadDir(browser))
+				end,
+			},
+			-- Right: subfolder name
+			{
+				text = getSubfolderLabel(),
+				callback = function()
+					local current = browser._default_download_subfolder or auto_series or ""
+					local subfolder_dialog
+					subfolder_dialog = InputDialog:new {
+						title = T_get("Subfolder name"),
+						input = current,
+						input_hint = auto_series or "",
+						buttons = {
+							{
+								{
+									text = T_get("Cancel"),
+									id = "close",
+									callback = function()
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+								{
+									text = T_get("Clear"),
+									callback = function()
+										browser._default_download_subfolder = nil
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+								{
+									text = T_get("Set"),
+									is_enter_default = true,
+									callback = function()
+										local val = subfolder_dialog:getInputText()
+										if val and val ~= "" then
+											browser._default_download_subfolder = util.replaceAllInvalidChars(val)
+										else
+											browser._default_download_subfolder = nil
+										end
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+							}
+						},
+					}
+					UIManager:show(subfolder_dialog)
+					subfolder_dialog:onShowKeyboard()
+				end,
+			},
+		})
 	end
 
 	-- Row 3: Additional options
@@ -762,18 +845,77 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 	-- Current custom filename or default
 	local current_filename = browser._custom_filename or filename_orig
 
+	-- Capture auto-detected series now (before any dialog close clears it)
+	local auto_series = browser._download_series
+
+	-- Helper: build the full effective destination path for display
+	local function effectivePath()
+		local base = DownloadManager.getCurrentDownloadDir(browser)
+		local sub  = browser._default_download_subfolder or auto_series
+		return sub and (base .. "/" .. sub .. "/") or (base .. "/")
+	end
+
 	local buttons = {
 		{
 			{
-				text = T_get("Choose folder"),
+				-- Sets session-level base folder (does not touch global KOReader setting)
+				text = T_get("Base folder (session)"),
 				callback = function()
 					UIManager:close(browser.options_dialog)
 					require("ui/downloadmgr"):new {
 						onConfirm = function(path)
-							logger.dbg("Download folder set to", path)
-							G_reader_settings:saveSetting("download_dir", path)
+							logger.dbg("Session download dir set to", path)
+							browser._session_download_dir = path
 						end,
 					}:chooseDir(DownloadManager.getCurrentDownloadDir(browser))
+				end,
+			},
+		},
+		{
+			{
+				text = T_get("Subfolder name"),
+				callback = function()
+					UIManager:close(browser.options_dialog)
+					local current = browser._default_download_subfolder or auto_series or ""
+					local subfolder_dialog
+					subfolder_dialog = InputDialog:new {
+						title = T_get("Subfolder name"),
+						input = current,
+						input_hint = auto_series or "",
+						buttons = {
+							{
+								{
+									text = T_get("Cancel"),
+									id = "close",
+									callback = function()
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+								{
+									text = T_get("Clear"),
+									callback = function()
+										browser._default_download_subfolder = nil
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+								{
+									text = T_get("Set"),
+									is_enter_default = true,
+									callback = function()
+										local val = subfolder_dialog:getInputText()
+										if val and val ~= "" then
+											browser._default_download_subfolder = util.replaceAllInvalidChars(val)
+										else
+											browser._default_download_subfolder = nil
+										end
+										UIManager:close(subfolder_dialog)
+									end,
+								},
+							}
+						},
+					}
+					UIManager:show(subfolder_dialog)
+					subfolder_dialog:onShowKeyboard()
 				end,
 			},
 		},
@@ -799,7 +941,6 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 								{
 									text = T_get("Reset"),
 									callback = function()
-										-- Reset to original filename
 										browser._custom_filename = filename_orig
 										UIManager:close(dialog)
 									end,
@@ -810,9 +951,7 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 									callback = function()
 										local new_filename = dialog:getInputText()
 										if new_filename and new_filename ~= "" then
-											-- Sanitize the filename
 											browser._custom_filename = util.replaceAllInvalidChars(new_filename)
-											logger.dbg("Custom filename set to:", browser._custom_filename)
 										end
 										UIManager:close(dialog)
 									end,
@@ -836,10 +975,9 @@ function BookInfoDialog.showDownloadOptionsDialog(browser, item)
 		},
 	}
 
-	local current_dir = DownloadManager.getCurrentDownloadDir(browser)
-
 	browser.options_dialog = ButtonDialog:new {
-		title = T(T_get("Download Options\n\nFolder: %1\n\nFilename: %2"), BD.dirpath(current_dir), current_filename),
+		title = T(T_get("Download Options\n\nDestination:\n%1\nFilename: %2"),
+			BD.dirpath(effectivePath()), current_filename),
 		buttons = buttons,
 	}
 	UIManager:show(browser.options_dialog)
