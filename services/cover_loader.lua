@@ -133,6 +133,57 @@ function CoverLoader.loadVisibleCovers(menu, debug_log)
 	return halt
 end
 
+--- Prefetch cover images for the next page into the disk cache (no rendering).
+-- Called with a delay after the current page starts loading so it runs in background.
+-- Only runs when online and cover cache is enabled.
+-- @param menu table Menu instance (needs item_table, page, page_num, perpage)
+function CoverLoader.prefetchAdjacentCovers(menu)
+	-- Skip prefetch when offline — nothing to download
+	local net_ok, is_online = pcall(function()
+		return require("ui/network/manager"):isConnected()
+	end)
+	if not (net_ok and is_online) then return end
+
+	if not menu.item_table or not menu.perpage or not menu.page or not menu.page_num then return end
+	if menu.page >= menu.page_num then return end  -- already on last page
+
+	-- Respect the user's cache-disabled preference
+	local cache_enabled = not (menu.settings and menu.settings.cover_cache_enabled == false)
+	if not cache_enabled then return end
+
+	-- Collect cover URLs for page N+1 (deduplicated)
+	local next_page = menu.page + 1
+	local idx_offset = (next_page - 1) * menu.perpage
+	local prefetch_urls = {}
+	local seen = {}
+
+	for i = 1, menu.perpage do
+		local entry = menu.item_table[idx_offset + i]
+		if entry and entry.cover_url and not seen[entry.cover_url] then
+			table.insert(prefetch_urls, entry.cover_url)
+			seen[entry.cover_url] = true
+		end
+	end
+
+	if #prefetch_urls == 0 then return end
+
+	Debug.log("CoverLoader:", "prefetching", #prefetch_urls, "cover URLs for page", next_page)
+
+	-- Load with nil callback: ImageLoader still checks its cache first, skipping
+	-- already-cached URLs, and writes fresh downloads to the disk cache.
+	local _, halt = ImageLoader:loadImages(
+		prefetch_urls,
+		nil,  -- cache-only, no widget update
+		menu.root_catalog_username,
+		menu.root_catalog_password,
+		true,
+		menu.settings and menu.settings.cover_cache_max_mb,
+		menu.settings and menu.settings.cover_cache_ttl_minutes
+	)
+
+	menu._halt_prefetch = halt
+end
+
 --- Clean up cover loading and free resources
 -- @param menu table Menu instance with halt_image_loading and item_table
 function CoverLoader.cleanup(menu)
@@ -140,6 +191,12 @@ function CoverLoader.cleanup(menu)
 	if menu.halt_image_loading then
 		menu.halt_image_loading()
 		menu.halt_image_loading = nil
+	end
+
+	-- Cancel any in-progress prefetch
+	if menu._halt_prefetch then
+		menu._halt_prefetch()
+		menu._halt_prefetch = nil
 	end
 
 	-- Free cover image blitbuffers

@@ -1,4 +1,5 @@
 local HttpClient = require("services.http_client")
+local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local Constants = require("models.constants")
 local Debug = require("utils.debug")
@@ -65,6 +66,22 @@ function Batch:loadImages(urls)
             if cached and cached.content then
                 stale_content = cached.content
             end
+        end
+
+        -- If the device is offline, skip the network attempt entirely.
+        -- Use any stale cached content immediately instead of waiting for a timeout.
+        local net_ok, is_online = pcall(function() return NetworkMgr:isConnected() end)
+        if not (net_ok and is_online) then
+            if stale_content and self.callback then
+                local ok, err = pcall(self.callback, url, stale_content)
+                if not ok then Debug.error("ImageLoader:", "offline stale callback error:", err) end
+            end
+            if #pending_urls > 0 then
+                UIManager:scheduleIn(Constants.UI_TIMING.IMAGE_BATCH_DELAY, run_image)
+            else
+                self.loading = false
+            end
+            return
         end
 
         Debug.log("ImageLoader:", "Fetching cover with auth:", self.username and "yes" or "no")
