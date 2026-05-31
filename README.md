@@ -2,20 +2,39 @@
 
 <div align="center">
 
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/greywolf1499/opds_plus.koplugin?style=for-the-badge&color=orange)
-![GitHub all releases](https://img.shields.io/github/downloads/greywolf1499/opds_plus.koplugin/total?style=for-the-badge&color=yellow)
-![GitHub](https://img.shields.io/github/license/greywolf1499/opds_plus.koplugin?style=for-the-badge&color=blue)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/Bibi02611/opds_plus.koplugin?style=for-the-badge&color=orange)
+![GitHub all releases](https://img.shields.io/github/downloads/Bibi02611/opds_plus.koplugin/total?style=for-the-badge&color=yellow)
+![GitHub](https://img.shields.io/github/license/Bibi02611/opds_plus.koplugin?style=for-the-badge&color=blue)
 ![Platform](https://img.shields.io/badge/Platform-KOReader-success?style=for-the-badge&logo=koreader)
 
 </div>
 
 # OPDS Plus - Enhanced OPDS Browser for KOReader
 
-**Version:** 1.3.0
+**Version:** 1.3.1
 
 **OPDS Plus** is a feature-rich enhancement of KOReader's built-in OPDS catalog browser, providing visual book cover displays, multiple viewing modes, and extensive customization options for browsing online book catalogs.
 
 ## ✨ Features
+
+### 🌍 French Translation *(New in 1.3.1)*
+
+- All plugin-specific UI strings are now fully translated into French when KOReader's language is set to French
+- Covers every label, dialog, menu, button, and status message added by OPDS Plus — queue management, folder controls, series detection, grid/cover/font settings, error messages, and more
+- Standard KOReader strings (already translated by the core app) are handled by KOReader's own translation layer; OPDS Plus strings fall back gracefully if French translation is missing
+
+### 🛡️ Robustness Improvements *(New in 1.3.1)*
+
+- **No more crash on network drop**: all `http.request` calls (feed fetcher, cover loader, download manager, Kavita streaming) are now wrapped in `pcall` — a socket error no longer leaves the timeout active or crashes the plugin
+- **XML parser depth guard**: recursion capped at 100 levels to prevent stack overflow on malformed OPDS feeds
+- **Kavita integration hardened**: nil guards on URL regex extractions and bearer token parsing; invalid/missing values return `0` instead of raising an error
+- **Blitbuffer leak fixed**: old cover image buffer is freed before replacement in the cover loader
+- **Series metadata extraction**: `dc:series` / `dc:seriesIndex` fields are now properly parsed from OPDS entries and populated on list/grid items
+- **Debug log hygiene**: 11 diagnostic traces demoted from `logger.warn` to `logger.dbg` (only visible in debug mode)
+- **Bug fix**: `auto_series` / `series_snapshot` confusion in the book info dialog — download callbacks now always use the correct pre-captured series name
+- **Bug fix**: removed a stray debug "ITEM DUMP" block that logged all item fields with `logger.warn` on every book tap
+
+---
 
 ### 📥 Series Download Management *(New in 1.3.0)*
 
@@ -101,7 +120,7 @@
 ### Method 1: Manual Installation (Recommended)
 
 1. **Download the latest release**:
-   - Go to the [Releases](https://github.com/greywolf1499/opds_plus.koplugin/releases) page
+   - Go to the [Releases](https://github.com/Bibi02611/opds_plus.koplugin/releases) page
    - Download the `opds_plus.koplugin.zip` file from the latest release
 
 2. **Extract to KOReader plugins directory**:
@@ -132,7 +151,7 @@
 cd ~/.config/koreader/plugins/  # Adjust path for your system
 
 # Clone the repository
-git clone https://github.com/greywolf1499/opds_plus.koplugin.git
+git clone https://github.com/Bibi02611/opds_plus.koplugin.git
 
 # Restart KOReader
 ```
@@ -179,7 +198,7 @@ Access settings from: **OPDS Plus Catalog → Settings**
   - Extra Large (20%): Maximum cover visibility
   - Custom: Fine-tune between 5-25%
 
-#### Cover Settings (New in 1.2.0)
+#### Cover Settings
 - **Prefer Large Covers**:
   - Enabled: prioritizes higher-quality cover sources when available.
   - Disabled: prefers faster thumbnail sources.
@@ -215,7 +234,7 @@ Access settings from: **OPDS Plus Catalog → Settings**
   - Bold/regular weight
   - Color: Dark Gray or Black
 
-### Sync Actions & Settings (New in 1.2.0)
+### Sync Actions & Settings
 
 - **Direct Sync Actions**:
   - Sync all catalogs
@@ -231,9 +250,9 @@ Access settings from: **OPDS Plus Catalog → Settings**
   - Maximum sync download count.
   - Filetype filtering for sync downloads.
 
-### Book Info Dialog (New in 1.2.0)
+### Book Info Dialog
 
-- Tapping a book now opens a book info dialog before download.
+- Tapping a book opens a book info dialog before download.
 - Dialog includes cover preview and at-a-glance metadata for faster decisions.
 - Download actions are available directly from the dialog flow.
 
@@ -295,6 +314,7 @@ opds_plus.koplugin/
     ├── catalog_utils.lua
     ├── debug.lua
     ├── file_utils.lua
+    ├── locale.lua
     ├── result.lua
     └── url_utils.lua
 ```
@@ -338,6 +358,7 @@ Contributions are welcome! Here's how you can help:
 
 - **Original OPDS Plugin**: KOReader development team
 - **Enhancement Development**: greywolf1499
+- **v1.3.x improvements**: Bibi02611
 - Built upon the excellent [KOReader](https://github.com/koreader/koreader) e-reader software
 
 ## 📜 License
@@ -348,11 +369,22 @@ See the [LICENSE](LICENSE) file for details.
 
 ## 📞 Support
 
-- **Issues & Bug Reports**: [GitHub Issues](https://github.com/greywolf1499/opds_plus.koplugin/issues)
+- **Issues & Bug Reports**: [GitHub Issues](https://github.com/Bibi02611/opds_plus.koplugin/issues)
 - **KOReader Documentation**: [KOReader Wiki](https://github.com/koreader/koreader/wiki)
 - **OPDS Specification**: [OPDS Spec](https://specs.opds.io/)
 
 ## 🔄 Version History
+
+### v1.3.1
+- **French translation**: all plugin-specific UI strings translated — queue, folder controls, series detection, grid/cover/font settings, error messages and more (`utils/locale.lua`, callable table with ~200 strings, graceful fallback to KOReader gettext)
+- **Robustness**: `pcall` wrapper around every `http.request` — socket timeout can no longer leak on network error; applies to feed fetcher, download manager, cover loader, and Kavita streaming
+- **XML parser**: recursion depth capped at 100 levels to prevent stack overflow on malformed feeds
+- **Kavita hardening**: nil guards on URL regex and bearer token extraction; errors return `0` instead of crashing
+- **Blitbuffer leak**: old cover `blitbuffer` is now freed before replacement in the cover loader
+- **Series metadata**: `dc:series` / `dc:seriesIndex` OPDS fields now properly extracted and available on items
+- **Fix**: `series_snapshot` correctly captured before any `UIManager:close()` in the book info dialog — download callbacks no longer use a stale/nil series name
+- **Fix**: removed debug "ITEM DUMP" block that polluted logs on every book tap
+- **Log hygiene**: 11 diagnostic traces demoted from `logger.warn` to `logger.dbg`
 
 ### v1.3.0
 - **Queue all in series**: one-tap bulk download of an entire OPDS catalog (all pages, format picker, confirmation)
