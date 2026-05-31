@@ -329,7 +329,7 @@ function OPDSGridCell:onHoldSelect(arg, ges)
 end
 
 function OPDSGridCell:free()
-    -- Nothing to free
+    InputContainer.free(self)
 end
 
 -- ============================================
@@ -735,33 +735,6 @@ function OPDSGridMenu:updateItems(select_number)
         return "ui", refresh_dimen
     end)
 
-    -- Custom page info
-    if self.page_info then
-        local grid_cols = self.columns or 3
-        local custom_text = "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. grid_cols .. " col.)"
-
-        for i = 1, 10 do
-            if self.page_info[i] and type(self.page_info[i]) == "table" and self.page_info[i].text then
-                local old_widget = self.page_info[i]
-                local face = old_widget.face or Font:getFace("smallinfofont")
-                local fgcolor = old_widget.fgcolor or Blitbuffer.COLOR_BLACK
-
-                if old_widget.free then
-                    old_widget:free()
-                end
-
-                self.page_info[i] = TextWidget:new {
-                    text = custom_text,
-                    face = face,
-                    fgcolor = fgcolor,
-                }
-
-                UIManager:setDirty(self.show_parent, "ui")
-                break
-            end
-        end
-    end
-
     -- Schedule cover loading; cancel any stale pending schedule first.
     if #self._items_to_update > 0 then
         self:_debugLog("Scheduling cover loading for", #self._items_to_update, "items")
@@ -778,10 +751,24 @@ function OPDSGridMenu:updateItems(select_number)
     end
 end
 
--- Override page info
-function OPDSGridMenu:getPageInfo()
+function OPDSGridMenu:updatePageInfo(select_number)
+    Menu.updatePageInfo(self, select_number)
+    if not self.page_info or self.page_num <= 0 then return end
     local columns = self.columns or 3
-    return "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. columns .. " col.)"
+    local text = "\xe2\x96\xa6  " .. self.page .. " / " .. self.page_num .. " (" .. columns .. " col.)"
+    for i = 1, #self.page_info do
+        local child = self.page_info[i]
+        if child and type(child) == "table" and child.text ~= nil then
+            local old = child
+            self.page_info[i] = TextWidget:new {
+                text = text,
+                face = old.face or Font:getFace("smallinfofont"),
+                fgcolor = old.fgcolor or Blitbuffer.COLOR_BLACK,
+            }
+            if old.free then old:free() end
+            break
+        end
+    end
 end
 
 function OPDSGridMenu:_loadVisibleCovers()

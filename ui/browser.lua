@@ -106,6 +106,10 @@ function OPDSBrowser:toggleViewMode()
         timeout = 1,
     })
 
+    -- Save current position so we can restore it after perpage changes
+    local first_item_idx = self.page and self.perpage
+        and ((self.page - 1) * self.perpage + 1) or 1
+
     -- Refresh the current view WITHOUT breaking navigation or auth context
     if #self.paths > 0 then
         -- We're in a catalog - get current URL
@@ -117,6 +121,15 @@ function OPDSBrowser:toggleViewMode()
     else
         -- We're at root level - just switch the display mode
         self:switchItemTable(self.catalog_title, self.item_table, -1)
+    end
+
+    -- Restore position: perpage may differ between list and grid modes
+    if first_item_idx > 1 and self.perpage and self.perpage > 0 and self.page_num then
+        local target_page = math.ceil(first_item_idx / self.perpage)
+        if target_page > 1 and target_page <= self.page_num then
+            self.page = target_page
+            self:updateItems()
+        end
     end
 end
 

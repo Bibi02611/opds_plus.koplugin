@@ -321,4 +321,46 @@ function OPDS:onFlushSettings()
     end
 end
 
+function OPDS:onDocumentClose()
+    if not self.pending_syncs then return end
+
+    -- Identify the file being closed
+    local doc_path = self.ui and self.ui.document and self.ui.document.file
+    if not doc_path then return end
+
+    local sync_info = self.pending_syncs[doc_path]
+    if not sync_info then return end
+
+    -- Remove immediately to avoid re-triggering on the next open/close
+    self.pending_syncs[doc_path] = nil
+    self.opds_settings:saveSetting("pending_syncs", self.pending_syncs)
+    self.opds_settings:flush()
+
+    -- Determine current page and completion state
+    local current_page = nil
+    local completed = false
+    local ok_page, page_val = pcall(function()
+        return self.ui.document:getCurrentPage()
+    end)
+    if ok_page and page_val then
+        current_page = page_val
+        local ok_total, total = pcall(function()
+            return self.ui.document:getPageCount()
+        end)
+        if ok_total and total and total > 0 then
+            completed = (page_val >= total)
+        end
+    end
+
+    -- Push progress to Komga (fail silently)
+    local KomgaSync = require("services.komga_sync")
+    local ok, err = pcall(KomgaSync.updateReadProgress,
+        sync_info.base_url, sync_info.book_id,
+        current_page, completed,
+        sync_info.username, sync_info.password)
+    if not ok then
+        require("logger").dbg("OPDS+: Komga sync push failed:", err)
+    end
+end
+
 return OPDS

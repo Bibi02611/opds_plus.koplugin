@@ -323,7 +323,7 @@ function OPDSListMenuItem:onHoldSelect(arg, ges)
 end
 
 function OPDSListMenuItem:free()
-    -- Nothing to free for dynamic placeholders
+    InputContainer.free(self)
 end
 
 -- Main OPDS List Menu that extends the standard Menu
@@ -536,38 +536,6 @@ function OPDSListMenu:updateItems(select_number)
         return "ui", refresh_dimen
     end)
 
-    -- Update page info with custom text
-    if self.page_info then
-        local custom_text = "\xe2\x89\xa1  " .. self.page .. " / " .. self.page_num
-
-        -- Find and replace the text widget
-        for i = 1, 10 do
-            if self.page_info[i] and type(self.page_info[i]) == "table" and self.page_info[i].text then
-                -- Get the original widget's properties (with fallbacks)
-                local old_widget = self.page_info[i]
-                local face = old_widget.face or Font:getFace("smallinfofont")
-                local fgcolor = old_widget.fgcolor or Blitbuffer.COLOR_BLACK
-
-                -- Free the old widget
-                if old_widget.free then
-                    old_widget:free()
-                end
-
-                -- Create new TextWidget with updated text
-                self.page_info[i] = TextWidget:new {
-                    text = custom_text,
-                    face = face,
-                    fgcolor = fgcolor,
-                }
-
-                -- Mark dirty for full refresh
-                UIManager:setDirty(self.show_parent, "ui")
-
-                break
-            end
-        end
-    end
-
     -- Schedule cover loading; cancel any stale pending schedule first.
     if #self._items_to_update > 0 then
         self:_debugLog("Scheduling cover loading for", #self._items_to_update, "items")
@@ -584,9 +552,23 @@ function OPDSListMenu:updateItems(select_number)
     end
 end
 
--- Override page info to show mode indicator
-function OPDSListMenu:getPageInfo()
-    return "\xe2\x89\xa1  " .. self.page .. " / " .. self.page_num
+function OPDSListMenu:updatePageInfo(select_number)
+    Menu.updatePageInfo(self, select_number)
+    if not self.page_info or self.page_num <= 0 then return end
+    local text = "\xe2\x89\xa1  " .. self.page .. " / " .. self.page_num
+    for i = 1, #self.page_info do
+        local child = self.page_info[i]
+        if child and type(child) == "table" and child.text ~= nil then
+            local old = child
+            self.page_info[i] = TextWidget:new {
+                text = text,
+                face = old.face or Font:getFace("smallinfofont"),
+                fgcolor = old.fgcolor or Blitbuffer.COLOR_BLACK,
+            }
+            if old.free then old:free() end
+            break
+        end
+    end
 end
 
 function OPDSListMenu:_loadVisibleCovers()
