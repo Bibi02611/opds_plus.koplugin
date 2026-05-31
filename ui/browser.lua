@@ -182,8 +182,22 @@ function OPDSBrowser:archiveFullCatalog()
         UIManager:forceRePaint()
     end
 
+    -- Wrap in pcall so any unsupported API silently no-ops instead of crashing.
+    local function setWakeLock(enable)
+        pcall(function()
+            local Device = require("device")
+            if Device:isAndroid() then
+                local android = require("android")
+                if type(android.setWakeLock) == "function" then
+                    android.setWakeLock(enable)
+                end
+            end
+        end)
+    end
+
     local function startArchive()
         NetworkMgr:runWhenConnected(function()
+            setWakeLock(true)
             showProgress(_("Analyse du catalogue…"))
 
             cancel_fn = OfflinePack.start {
@@ -202,6 +216,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_done = function(pages, total_covers, new_covers)
+                    setWakeLock(false)
                     closeProgress()
                     UIManager:show(InfoMessage:new {
                         text = T(
@@ -212,6 +227,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_cancel = function()
+                    setWakeLock(false)
                     closeProgress()
                 end,
             }
