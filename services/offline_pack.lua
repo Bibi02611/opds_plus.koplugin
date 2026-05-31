@@ -21,6 +21,20 @@ local UIManager   = require("ui/uimanager")
 local Constants   = require("models.constants")
 local Debug       = require("utils.debug")
 
+-- Acquire / release Android's PARTIAL_WAKE_LOCK via android.setWakeLock().
+-- This is the definitive wakelock: prevents Android from cutting CPU + WiFi
+-- even when the screen turns off. Device.screen:keepAlive is an abstraction
+-- that may not map to the correct wakelock type on all builds.
+-- Wrapped in pcall so it silently no-ops on non-Android platforms.
+local function setWakeLock(enable)
+	pcall(function()
+		local ok, android = pcall(require, "android")
+		if ok and android and type(android.setWakeLock) == "function" then
+			android.setWakeLock(enable)
+		end
+	end)
+end
+
 local OfflinePack = {}
 
 -- Return the preferred cover URL from a parsed entry (thumbnail preferred).
@@ -89,22 +103,40 @@ function OfflinePack.start(cfg)
 	local max_depth = cfg.max_depth or 2
 	local max_pages = cfg.max_pages or 1000
 
+	local is_downloading = false  -- heartbeat guard
+
+	-- Heartbeat: fires every 0.5 s while a download is in progress.
+	-- • resetTickler()        — prevents KOReader's own screensaver/sleep
+	-- • forceRePaint()        — signals visible UI activity to Android
+	-- • setWakeLock(true)     — re-affirms the CPU wakelock every 500 ms
+	--                           (a single acquire can be reclaimed by Android
+	--                           if the OS decides the app is idle)
+	local function heartbeat()
+		if not is_downloading then return end
+		pcall(function() UIManager:resetTickler() end)
+		UIManager:forceRePaint()
+		setWakeLock(true)    -- re-affirm, not just acquire once
+		UIManager:scheduleIn(0.5, heartbeat)
+	end
+
 	local state = {
 		-- BFS queue
-		queue       = { { url = cfg.start_url, depth = 0 } },
-		visited     = { [cfg.start_url] = true },
-		pages_done  = 0,
+		queue         = { { url = cfg.start_url, depth = 0 } },
+		visited       = { [cfg.start_url] = true },
+		pages_done    = 0,
 		-- Cover collection
-		all_covers  = {},
-		seen_covers = {},
-		phase       = "pages",
-		cover_idx   = 1,
-		covers_new  = 0,
-		cancelled   = false,
+		all_covers    = {},
+		seen_covers   = {},
+		phase         = "pages",
+		cover_idx     = 1,
+		covers_new    = 0,
+		cancelled     = false,
 	}
 
 	local function tick()
 		if state.cancelled then
+			is_downloading = false
+			setWakeLock(false)
 			if cfg.on_cancel then cfg.on_cancel() end
 			return
 		end
@@ -121,6 +153,13 @@ function OfflinePack.start(cfg)
 				end
 				UIManager:nextTick(tick)
 				return
+			end
+
+			-- Start wakelock + heartbeat on the first real HTTP call.
+			if not is_downloading then
+				is_downloading = true
+				setWakeLock(true)
+				UIManager:scheduleIn(0.5, heartbeat)
 			end
 
 			Debug.log("OfflinePack:", "fetch depth=" .. item.depth, item.url)
@@ -205,6 +244,8 @@ function OfflinePack.start(cfg)
 			end
 
 			if state.cover_idx > total then
+				is_downloading = false
+				setWakeLock(false)
 				Debug.log("OfflinePack:", "done —",
 					state.pages_done, "pages,", total, "covers,",
 					state.covers_new, "newly downloaded")

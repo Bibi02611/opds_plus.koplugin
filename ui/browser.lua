@@ -186,6 +186,7 @@ function OPDSBrowser:archiveFullCatalog()
         NetworkMgr:runWhenConnected(function()
             showProgress(_("Analyse du catalogue…"))
 
+            -- keepAlive and resetTickler are managed inside OfflinePack.start
             cancel_fn = OfflinePack.start {
                 start_url = catalog_url,
                 username  = self.root_catalog_username,
