@@ -125,10 +125,11 @@ function OPDSListMenuItem:init()
     -- Check if we should use real cover or placeholder
     if self.entry.cover_bb then
         inner_cover_widget = ImageWidget:new {
-            image = self.entry.cover_bb,
-            width = self.cover_width,
-            height = self.cover_height,
-            alpha = true,
+            image            = self.entry.cover_bb,
+            width            = self.cover_width,
+            height           = self.cover_height,
+            alpha            = true,
+            image_disposable = false,
         }
     elseif self.entry.cover_url then
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "loading")
@@ -296,7 +297,9 @@ function OPDSListMenuItem:update()
         new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
     end
     if self.cover_widget then
+        local old = self.cover_widget[1]
         self.cover_widget[1] = new_inner
+        if old and old.free then old:free() end
     end
     -- Use "ui" on the whole show_parent: partial + self.dimen relies on the widget
     -- having been laid out (x/y set by paintTo) which is not guaranteed when the
