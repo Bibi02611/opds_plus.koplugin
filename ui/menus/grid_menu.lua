@@ -118,10 +118,8 @@ function OPDSGridCell:init()
             height = self.cover_height,
             alpha = true,
         }
-    elseif self.entry.cover_url and self.entry.lazy_load_cover then
+    elseif self.entry.cover_url then
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "loading")
-    elseif self.entry.cover_url and self.entry.cover_failed then
-        inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "error")
     else
         inner_cover_widget = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
     end
@@ -305,17 +303,13 @@ function OPDSGridCell:update()
             alpha            = true,
             image_disposable = false,
         }
-    elseif self.entry.cover_failed then
-        new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "error")
     else
         new_inner = UIUtils.createPlaceholderCover(self.cover_width, self.cover_height, "no_cover")
     end
     if self.cover_widget then
         self.cover_widget[1] = new_inner
     end
-    UIManager:setDirty(self.show_parent, function()
-        return "partial", self.dimen
-    end)
+    UIManager:setDirty(self.show_parent, "ui")
 end
 
 function OPDSGridCell:onTapSelect(arg, ges)
@@ -610,7 +604,7 @@ function OPDSGridMenu:updateItems(select_number)
 
                     table.insert(row_group, cell)
 
-                    if entry.cover_url and entry.lazy_load_cover and not entry.cover_bb then
+                    if entry.cover_url and not entry.cover_bb then
                         table.insert(self._items_to_update, { entry = entry, widget = cell })
                     end
                 else
@@ -707,7 +701,7 @@ function OPDSGridMenu:updateItems(select_number)
 
                     table.insert(row_group, cell)
 
-                    if entry.cover_url and entry.lazy_load_cover and not entry.cover_bb then
+                    if entry.cover_url and not entry.cover_bb then
                         table.insert(self._items_to_update, { entry = entry, widget = cell })
                     end
                 else
