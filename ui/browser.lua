@@ -184,7 +184,7 @@ function OPDSBrowser:archiveFullCatalog()
 
     local function startArchive()
         NetworkMgr:runWhenConnected(function()
-            UIManager:preventSuspend()
+            if UIManager.preventSuspend then UIManager:preventSuspend() end
             showProgress(_("Analyse du catalogue…"))
 
             cancel_fn = OfflinePack.start {
@@ -203,7 +203,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_done = function(pages, total_covers, new_covers)
-                    UIManager:allowSuspend()
+                    if UIManager.allowSuspend then UIManager:allowSuspend() end
                     closeProgress()
                     UIManager:show(InfoMessage:new {
                         text = T(
@@ -214,7 +214,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_cancel = function()
-                    UIManager:allowSuspend()
+                    if UIManager.allowSuspend then UIManager:allowSuspend() end
                     closeProgress()
                 end,
             }
