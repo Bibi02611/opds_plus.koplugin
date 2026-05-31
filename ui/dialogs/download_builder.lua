@@ -11,7 +11,7 @@ local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local url = require("socket.url")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local Constants = require("models.constants")
 local OPDSPSE = require("services.kavita")

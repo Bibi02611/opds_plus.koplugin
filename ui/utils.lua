@@ -10,7 +10,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local UIUtils = {}
 

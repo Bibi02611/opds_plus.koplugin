@@ -8,7 +8,7 @@ local UIManager = require("ui/uimanager")
 local ffiUtil = require("ffi/util")
 local logger = require("logger")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = ffiUtil.template
 
 -- Import the custom cover menu for displaying book covers
@@ -486,7 +486,7 @@ function OPDSBrowser:getFileName(item)
     if self.root_catalog_raw_names then
         filename = nil
     end
-    logger.warn("OPDS getFileName: title_raw=", item.title or "(nil)",
+    logger.dbg("OPDS getFileName: title_raw=", item.title or "(nil)",
         "decoded=", filename_orig or "(nil)")
     return util.replaceAllInvalidChars(filename), util.replaceAllInvalidChars(filename_orig)
 end

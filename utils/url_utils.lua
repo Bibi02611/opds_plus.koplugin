@@ -91,7 +91,7 @@ function UrlUtils.parseContentDisposition(disposition)
 	local filename = disposition:match("filename%*=%s*[Uu][Tt][Ff]%-8''([^;%s]+)")
 	if filename then
 		local result = url.unescape(filename)
-		logger.warn("OPDS parseContentDisposition RFC5987:", result)
+		logger.dbg("OPDS parseContentDisposition RFC5987:", result)
 		return result
 	end
 
@@ -106,7 +106,7 @@ function UrlUtils.parseContentDisposition(disposition)
 	-- Trim leading/trailing whitespace
 	raw = raw:match("^%s*(.-)%s*$")
 
-	logger.warn("OPDS parseContentDisposition raw:", raw)
+	logger.dbg("OPDS parseContentDisposition raw:", raw)
 
 	-- Remove surrounding double-quotes if present: "example.epub" → example.epub
 	local value = raw:match('^"(.*)"$') or raw
@@ -128,7 +128,7 @@ function UrlUtils.parseContentDisposition(disposition)
 	-- Final whitespace trim
 	decoded = decoded:match("^%s*(.-)%s*$")
 
-	logger.warn("OPDS parseContentDisposition final:", decoded)
+	logger.dbg("OPDS parseContentDisposition final:", decoded)
 
 	if decoded ~= "" then
 		return decoded

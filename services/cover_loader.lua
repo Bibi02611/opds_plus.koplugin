@@ -62,6 +62,9 @@ function CoverLoader.createRenderCallback(items_by_url, cover_width, cover_heigh
 			end)
 
 			if ok and cover_bb then
+				if entry.cover_bb then
+					entry.cover_bb:free()
+				end
 				entry.cover_bb = cover_bb
 				entry.cover_failed = false
 			else

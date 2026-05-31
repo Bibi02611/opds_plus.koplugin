@@ -37,8 +37,10 @@ local function unescape(str)
     end)
 end
 
-function OPDSParser:createFlatXTable(xlex, curr_element)
+function OPDSParser:createFlatXTable(xlex, curr_element, depth)
     curr_element = curr_element or {}
+    if (depth or 0) >= 100 then return curr_element end
+    depth = (depth or 0) + 1
 
     local curr_attr_name
     local attr_count = 0
@@ -53,7 +55,7 @@ function OPDSParser:createFlatXTable(xlex, curr_element)
 
                 -- if it does, if it's a table, add to it
                 -- if it doesn't, then add a table
-                local tab = self:createFlatXTable(xlex)
+                local tab = self:createFlatXTable(xlex, nil, depth)
                 if txt == "entry" or txt == "link" or txt == "Url" then
                     if curr_element[txt] == nil then
                         curr_element[txt] = {}

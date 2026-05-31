@@ -49,8 +49,15 @@ function HttpClient.fetch(url, timeout, maxtime, username, password)
         password = password,
     }
 
-    local code, headers, status = socket.skip(1, http.request(request))
+    local code, headers, status
+    local req_ok, req_err = pcall(function()
+        code, headers, status = socket.skip(1, http.request(request))
+    end)
     socketutil:reset_timeout()
+    if not req_ok then
+        logger.warn("HTTP request error:", req_err)
+        return Result.err("Network error: " .. tostring(req_err), HttpClient.ErrorCodes.NETWORK_ERROR)
+    end
     local content = table.concat(sink)
 
     -- Handle timeout errors

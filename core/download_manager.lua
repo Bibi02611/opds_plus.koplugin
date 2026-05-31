@@ -15,7 +15,7 @@ local socket = require("socket")
 local socketutil = require("socketutil")
 local url = require("socket.url")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local N_ = _.ngettext
 local T = require("ffi/util").template
 
@@ -67,7 +67,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	-- ── Step 1 : base download directory ────────────────────────────────────
 	local base_dir = DownloadManager.getCurrentDownloadDir(browser)
 
-	logger.warn("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
+	logger.dbg("[OPDS Plus] getLocalDownloadPath in: filename=", filename or "(nil)",
 		" filetype=", filetype or "(nil)", " url=", remote_url or "(nil)")
 
 	-- ── Step 2 : series/folder detection ────────────────────────────────────────
@@ -78,7 +78,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	local series_name = browser._default_download_subfolder or browser._download_series
 	if series_name and series_name ~= "" then
 		series_name = util.replaceAllInvalidChars(series_name)
-		logger.warn("[OPDS Plus] Dossier cible : " .. series_name)
+		logger.dbg("[OPDS Plus] Dossier cible : " .. series_name)
 	else
 		series_name = nil
 	end
@@ -96,7 +96,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 		final_filename = browser:getServerFileName(remote_url, filetype)
 	end
 
-	logger.warn("[OPDS Plus] getLocalDownloadPath nom résolu : " .. (final_filename or "(nil)"))
+	logger.dbg("[OPDS Plus] getLocalDownloadPath nom résolu : " .. (final_filename or "(nil)"))
 
 	-- ── Step 4 : path construction & directory creation ──────────────────────
 	local target_dir
@@ -110,7 +110,7 @@ function DownloadManager.getLocalDownloadPath(browser, filename, filetype, remot
 	final_filename = util.getSafeFilename(final_filename, target_dir)
 	local full_path = target_dir .. "/" .. final_filename
 	full_path = util.fixUtf8(full_path, "_")
-	logger.warn("[OPDS Plus] Chemin final de stockage : " .. full_path)
+	logger.dbg("[OPDS Plus] Chemin final de stockage : " .. full_path)
 	return full_path
 end
 
@@ -148,16 +148,28 @@ function DownloadManager.downloadFile(browser, local_path, remote_url, username,
 		end
 
 		socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
-		code, headers, status = socket.skip(1, http.request {
-			url      = remote_url,
-			headers  = {
-				["Accept-Encoding"] = "identity",
-			},
-			sink     = ltn12.sink.file(file_handle),
-			user     = username,
-			password = password,
-		})
+		local req_ok, req_err = pcall(function()
+			code, headers, status = socket.skip(1, http.request {
+				url      = remote_url,
+				headers  = {
+					["Accept-Encoding"] = "identity",
+				},
+				sink     = ltn12.sink.file(file_handle),
+				user     = username,
+				password = password,
+			})
+		end)
 		socketutil:reset_timeout()
+		if not req_ok then
+			pcall(file_handle.close, file_handle)
+			util.removeFile(local_path)
+			logger.warn("[OPDS Plus] downloadFile: network error:", req_err)
+			UIManager:show(InfoMessage:new {
+				text = T(_("Cannot download file:\n%1\n%2"),
+					BD.filepath(local_path), req_err or ""),
+			})
+			return false
+		end
 	else
 		UIManager:show(InfoMessage:new {
 			text = T(_("Invalid protocol:\n%1"), parsed.scheme),

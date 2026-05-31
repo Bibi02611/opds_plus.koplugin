@@ -10,7 +10,7 @@ local logger = require("logger")
 local ltn12 = require("ltn12")
 local socket = require("socket")
 local socketutil = require("socketutil")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = require("ffi/util").template
 
 local OPDSParser = require("core.parser")
@@ -45,8 +45,15 @@ function FeedFetcher.fetchFeed(item_url, headers_only, username, password)
 		user     = username,
 		password = password,
 	}
-	local code, headers, status = socket.skip(1, http.request(request))
+	local code, headers, status
+	local req_ok, req_err = pcall(function()
+		code, headers, status = socket.skip(1, http.request(request))
+	end)
 	socketutil:reset_timeout()
+	if not req_ok then
+		logger.dbg(string.format("OPDS: fetchFeed network error for `%s`: %s", item_url, req_err))
+		return nil
+	end
 
 	if headers_only then
 		return headers
@@ -158,7 +165,7 @@ function FeedFetcher.getServerFileName(item_url, filetype, username, password)
 
 	if headers then
 		local cd = headers["content-disposition"]
-		logger.warn("OPDS getServerFileName content-disposition:", cd or "(nil)")
+		logger.dbg("OPDS getServerFileName content-disposition:", cd or "(nil)")
 
 		filename = UrlUtils.parseContentDisposition(cd)
 		if filename then
@@ -168,7 +175,7 @@ function FeedFetcher.getServerFileName(item_url, filetype, username, password)
 		if not filename and headers["location"] then
 			-- Location may contain a MIME-encoded or URL-encoded filename in the path
 			local loc = headers["location"]
-			logger.warn("OPDS getServerFileName location:", loc)
+			logger.dbg("OPDS getServerFileName location:", loc)
 			local raw = loc:gsub(".*/", "")
 			filename = UrlUtils.decodeFilename(raw)
 			source = "location"
@@ -180,11 +187,11 @@ function FeedFetcher.getServerFileName(item_url, filetype, username, password)
 		source = "url"
 	end
 
-	logger.warn("OPDS getServerFileName source=" .. (source or "?") .. " raw filename:", filename)
+	logger.dbg("OPDS getServerFileName source=" .. (source or "?") .. " raw filename:", filename)
 
 	filename = FileUtils.ensureExtension(filename, filetype)
 
-	logger.warn("OPDS getServerFileName final:", filename)
+	logger.dbg("OPDS getServerFileName final:", filename)
 
 	return filename
 end

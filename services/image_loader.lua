@@ -49,7 +49,8 @@ function Batch:loadImages(urls)
             if cached and not cached.stale then
                 Debug.log("ImageLoader:", "Cover cache hit:", url)
                 if self.callback then
-                    self.callback(url, cached.content)
+                    local ok, err = pcall(self.callback, url, cached.content)
+                    if not ok then Debug.error("ImageLoader:", "callback error:", err) end
                 end
 
                 if #pending_urls > 0 then
@@ -83,7 +84,8 @@ function Batch:loadImages(urls)
 
         if success then
             if self.callback then
-                self.callback(url, content)
+                local ok, err = pcall(self.callback, url, content)
+                if not ok then Debug.error("ImageLoader:", "callback error:", err) end
             end
 
             if self.cover_cache_enabled ~= false then
@@ -92,7 +94,8 @@ function Batch:loadImages(urls)
         else
             Debug.error("ImageLoader:", "Failed to download cover:", content or "unknown error")
             if stale_content and self.callback then
-                self.callback(url, stale_content)
+                local ok, err = pcall(self.callback, url, stale_content)
+                if not ok then Debug.error("ImageLoader:", "callback error:", err) end
             end
         end
 

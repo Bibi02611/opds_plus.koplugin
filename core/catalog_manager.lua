@@ -321,7 +321,7 @@ end
 -- @param new_title string|nil Optional new title (defaults to "Copy of {title}")
 -- @return table New catalog configuration
 function CatalogManager.duplicateCatalog(server, new_title)
-	local _ = require("gettext")
+	local _ = require("utils.locale")
 	return {
 		title = new_title or _("Copy of ") .. server.title,
 		url = server.url,

@@ -10,7 +10,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local Constants = require("models.constants")
 local DownloadManager = require("core.download_manager")
@@ -182,7 +182,7 @@ function SyncManager.fillPendingSyncs(browser, server)
 			end
 			if #sub_table > 0 then
 				-- The first element seems to be most compatible. Second element has most options
-				item = sub_table[2]
+				item = sub_table[2] or sub_table[1]
 			else
 				item = entry
 			end

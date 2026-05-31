@@ -1,4 +1,4 @@
-local _ = require("gettext")
+local _ = require("utils.locale")
 local V = require("opds_plus_version")
 return {
     name = "opdsplus",
