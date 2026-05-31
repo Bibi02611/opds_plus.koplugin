@@ -331,15 +331,20 @@ local FR = {
 	["Formats"]                            = "Formats",
 }
 
-local function translate(str)
-	local lang = G_reader_settings and G_reader_settings:readSetting("language") or ""
-	if lang:sub(1, 2) == "fr" and FR[str] then
-		return FR[str]
-	end
-	return gettext(str)
-end
+-- Callable table — same pattern as KOReader's own gettext module.
+-- In Lua you cannot set fields on a plain function, so we use setmetatable
+-- to make the table callable via __call while exposing .ngettext as a field.
+local Locale = setmetatable({}, {
+	__call = function(_, str)
+		local lang = G_reader_settings and G_reader_settings:readSetting("language") or ""
+		if lang:sub(1, 2) == "fr" and FR[str] then
+			return FR[str]
+		end
+		return gettext(str)
+	end,
+})
 
-translate.ngettext = function(singular, plural, n)
+function Locale.ngettext(singular, plural, n)
 	local lang = G_reader_settings and G_reader_settings:readSetting("language") or ""
 	if lang:sub(1, 2) == "fr" then
 		local fr_singular = FR[singular] or singular
@@ -350,4 +355,4 @@ translate.ngettext = function(singular, plural, n)
 		or (n == 1 and singular or plural)
 end
 
-return translate
+return Locale
