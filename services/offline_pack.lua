@@ -103,6 +103,22 @@ function OfflinePack.start(cfg)
 	local max_depth = cfg.max_depth or 2
 	local max_pages = cfg.max_pages or 1000
 
+	local is_downloading = false  -- heartbeat guard
+
+	-- Heartbeat: fires every 0.5 s while a download is in progress.
+	-- • resetTickler()        — prevents KOReader's own screensaver/sleep
+	-- • forceRePaint()        — signals visible UI activity to Android
+	-- • setWakeLock(true)     — re-affirms the CPU wakelock every 500 ms
+	--                           (a single acquire can be reclaimed by Android
+	--                           if the OS decides the app is idle)
+	local function heartbeat()
+		if not is_downloading then return end
+		pcall(function() UIManager:resetTickler() end)
+		UIManager:forceRePaint()
+		setWakeLock(true)    -- re-affirm, not just acquire once
+		UIManager:scheduleIn(0.5, heartbeat)
+	end
+
 	local state = {
 		-- BFS queue
 		queue         = { { url = cfg.start_url, depth = 0 } },
@@ -115,22 +131,15 @@ function OfflinePack.start(cfg)
 		cover_idx     = 1,
 		covers_new    = 0,
 		cancelled     = false,
-		wakelock_held = false,   -- acquired on first HTTP call, not at startup
 	}
 
 	local function tick()
 		if state.cancelled then
+			is_downloading = false
 			setWakeLock(false)
 			if cfg.on_cancel then cfg.on_cancel() end
 			return
 		end
-
-		-- Signal continuous activity to both KOReader and Android:
-		--   resetTickler : resets KOReader's inactivity / screensaver timer
-		--   forceRePaint : produces visible screen activity that Android's Doze
-		--                  mode detects as "app is active" and won't suspend
-		pcall(function() UIManager:resetTickler() end)
-		UIManager:forceRePaint()
 
 		-- ── Phase 1 : BFS page walk ──────────────────────────────────────────
 		if state.phase == "pages" then
@@ -146,12 +155,11 @@ function OfflinePack.start(cfg)
 				return
 			end
 
-			-- Acquire wakelock just before the first real HTTP call.
-			-- Acquiring it at plugin startup is too early: Android may not
-			-- yet associate it with active network I/O and can still reclaim it.
-			if not state.wakelock_held then
+			-- Start wakelock + heartbeat on the first real HTTP call.
+			if not is_downloading then
+				is_downloading = true
 				setWakeLock(true)
-				state.wakelock_held = true
+				UIManager:scheduleIn(0.5, heartbeat)
 			end
 
 			Debug.log("OfflinePack:", "fetch depth=" .. item.depth, item.url)
@@ -236,6 +244,7 @@ function OfflinePack.start(cfg)
 			end
 
 			if state.cover_idx > total then
+				is_downloading = false
 				setWakeLock(false)
 				Debug.log("OfflinePack:", "done —",
 					state.pages_done, "pages,", total, "covers,",
