@@ -312,9 +312,9 @@ end
 -- Clear the catalog cache (in-memory) and the disk-based offline cache.
 function FeedFetcher.clearCache()
 	CatalogCache:clear()
-	local ok, iter = pcall(lfs.dir, OFFLINE_CACHE_DIR)
+	local ok, iter, state = pcall(lfs.dir, OFFLINE_CACHE_DIR)
 	if ok and iter then
-		for entry in iter do
+		for entry in iter, state do
 			if entry ~= "." and entry ~= ".." then
 				os.remove(OFFLINE_CACHE_DIR .. "/" .. entry)
 			end
@@ -325,9 +325,9 @@ end
 -- Get cache statistics: (used, total) counts combining in-memory and disk entries.
 function FeedFetcher.getCacheStats()
 	local disk_count = 0
-	local ok, iter = pcall(lfs.dir, OFFLINE_CACHE_DIR)
+	local ok, iter, state = pcall(lfs.dir, OFFLINE_CACHE_DIR)
 	if ok and iter then
-		for entry in iter do
+		for entry in iter, state do
 			if entry ~= "." and entry ~= ".." and entry:match("%.xml$") then
 				disk_count = disk_count + 1
 			end

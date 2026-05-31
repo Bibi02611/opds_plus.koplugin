@@ -31,9 +31,9 @@ local function checkAlreadyDownloaded(item)
 					return true
 				end
 				-- Check one level of subdirectories (series/collection folders)
-				local ok, iter = pcall(lfs.dir, download_dir)
+				local ok, iter, state = pcall(lfs.dir, download_dir)
 				if ok and iter then
-					for entry in iter do
+					for entry in iter, state do
 						if entry ~= "." and entry ~= ".." then
 							local sub = download_dir .. "/" .. entry
 							if lfs.attributes(sub, "mode") == "directory" then
