@@ -144,6 +144,27 @@ function OPDSBrowser:showCatalogMenu()
     UIManager:show(dialog)
 end
 
+-- Pre-download all covers for the current catalog page into the disk cache.
+function OPDSBrowser:saveOfflinePack()
+    local CoverLoader = require("services.cover_loader")
+    local pending = 0
+    for _, entry in ipairs(self.item_table or {}) do
+        if entry.cover_url and not entry.cover_bb then pending = pending + 1 end
+    end
+    if pending == 0 then
+        UIManager:show(InfoMessage:new {
+            text = _("Toutes les couvertures sont déjà en cache."),
+            timeout = 2,
+        })
+        return
+    end
+    UIManager:show(InfoMessage:new {
+        text = T(_("Mise en cache de %1 couverture(s) en arrière-plan…"), pending),
+        timeout = 2,
+    })
+    CoverLoader.prefetchAllCovers(self)
+end
+
 function OPDSBrowser:genItemTableFromRoot()
     return CatalogManager.genItemTableFromRoot(self.servers, self.downloads, _)
 end

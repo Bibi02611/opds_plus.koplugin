@@ -184,6 +184,41 @@ function CoverLoader.prefetchAdjacentCovers(menu)
 	menu._halt_prefetch = halt
 end
 
+--- Pre-download all covers for every item in menu.item_table into the disk cache.
+-- Runs in the background (async); no widget update since this is for offline packing.
+-- @param menu table Menu instance (needs item_table, root_catalog_username/password, settings)
+-- @return function|nil Halt function to cancel, or nil if nothing to do
+function CoverLoader.prefetchAllCovers(menu)
+	local net_ok, is_online = pcall(function()
+		return require("ui/network/manager"):isConnected()
+	end)
+	if not (net_ok and is_online) then return nil end
+	if not menu.item_table then return nil end
+
+	local urls = {}
+	local seen = {}
+	for _, entry in ipairs(menu.item_table) do
+		if entry.cover_url and not seen[entry.cover_url] then
+			table.insert(urls, entry.cover_url)
+			seen[entry.cover_url] = true
+		end
+	end
+	if #urls == 0 then return nil end
+
+	Debug.log("CoverLoader:", "prefetchAllCovers — queuing", #urls, "URLs for offline pack")
+
+	local _, halt = ImageLoader:loadImages(
+		urls, nil,
+		menu.root_catalog_username,
+		menu.root_catalog_password,
+		true,
+		menu.settings and menu.settings.cover_cache_max_mb,
+		menu.settings and menu.settings.cover_cache_ttl_minutes
+	)
+	menu._halt_prefetch_all = halt
+	return halt
+end
+
 --- Clean up cover loading and free resources
 -- @param menu table Menu instance with halt_image_loading and item_table
 function CoverLoader.cleanup(menu)
@@ -193,10 +228,16 @@ function CoverLoader.cleanup(menu)
 		menu.halt_image_loading = nil
 	end
 
-	-- Cancel any in-progress prefetch
+	-- Cancel any in-progress prefetch (adjacent page)
 	if menu._halt_prefetch then
 		menu._halt_prefetch()
 		menu._halt_prefetch = nil
+	end
+
+	-- Cancel any in-progress full-catalog prefetch (offline pack)
+	if menu._halt_prefetch_all then
+		menu._halt_prefetch_all()
+		menu._halt_prefetch_all = nil
 	end
 
 	-- Free cover image blitbuffers

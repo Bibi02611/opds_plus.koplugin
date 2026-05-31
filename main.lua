@@ -49,10 +49,11 @@ function OPDS:init()
     -- Initialize state manager singleton
     StateManager.getInstance(self)
 
-    -- Load servers, downloads, and pending syncs
+    -- Load servers, downloads, pending syncs, and series continuation data
     self.servers = self.opds_settings:readSetting("servers", Constants.DEFAULT_SERVERS)
     self.downloads = self.opds_settings:readSetting("downloads", {})
     self.pending_syncs = self.opds_settings:readSetting("pending_syncs", {})
+    self.pending_series = self.opds_settings:readSetting("pending_series", {})
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
@@ -171,6 +172,7 @@ function OPDS:_createBrowserInstance()
         downloads = self.downloads,
         settings = self.settings,
         pending_syncs = self.pending_syncs,
+        pending_series = self.pending_series,
         title = _("OPDS Plus Catalog"),
         is_popout = false,
         is_borderless = true,
@@ -302,23 +304,15 @@ function OPDS:onFlushSettings()
 end
 
 function OPDS:onDocumentClose()
-    if not self.pending_syncs then return end
-
-    -- Identify the file being closed
     local doc_path = self.ui and self.ui.document and self.ui.document.file
     if not doc_path then return end
 
-    local sync_info = self.pending_syncs[doc_path]
-    if not sync_info then return end
+    local sync_info   = self.pending_syncs  and self.pending_syncs[doc_path]
+    local series_info = self.pending_series and self.pending_series[doc_path]
+    if not sync_info and not series_info then return end
 
-    -- Remove immediately to avoid re-triggering on the next open/close
-    self.pending_syncs[doc_path] = nil
-    self.opds_settings:saveSetting("pending_syncs", self.pending_syncs)
-    self.opds_settings:flush()
-
-    -- Determine current page and completion state
-    local current_page = nil
-    local completed = false
+    -- Determine current page and completion state (shared by both branches)
+    local current_page, completed = nil, false
     local ok_page, page_val = pcall(function()
         return self.ui.document:getCurrentPage()
     end)
@@ -332,14 +326,34 @@ function OPDS:onDocumentClose()
         end
     end
 
-    -- Push progress to Komga (fail silently)
-    local KomgaSync = require("services.komga_sync")
-    local ok, err = pcall(KomgaSync.updateReadProgress,
-        sync_info.base_url, sync_info.book_id,
-        current_page, completed,
-        sync_info.username, sync_info.password)
-    if not ok then
-        require("logger").dbg("OPDS+: Komga sync push failed:", err)
+    -- Komga sync: push reading progress
+    if sync_info then
+        self.pending_syncs[doc_path] = nil
+        self.opds_settings:saveSetting("pending_syncs", self.pending_syncs)
+        self.opds_settings:flush()
+        local KomgaSync = require("services.komga_sync")
+        local ok, err = pcall(KomgaSync.updateReadProgress,
+            sync_info.base_url, sync_info.book_id,
+            current_page, completed,
+            sync_info.username, sync_info.password)
+        if not ok then
+            require("logger").dbg("OPDS+: Komga sync push failed:", err)
+        end
+    end
+
+    -- Series continuation: notify when the book is fully read
+    if series_info then
+        self.pending_series[doc_path] = nil
+        self.opds_settings:saveSetting("pending_series", self.pending_series)
+        self.opds_settings:flush()
+        if completed then
+            local T_fn = require("ffi/util").template
+            local InfoMessage = require("ui/widget/infomessage")
+            UIManager:show(InfoMessage:new {
+                text = T_fn(_("Série : %1\nSuivant : %2"), series_info.series, series_info.next_title),
+                timeout = 5,
+            })
+        end
     end
 end
 

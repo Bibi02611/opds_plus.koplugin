@@ -88,6 +88,7 @@ function DownloadDialogBuilder.buildDownloadDialog(browser, item, filename, crea
 						local local_path = DownloadManager.getLocalDownloadPath(
 							browser, filename, filetype, acquisition.href)
 						local on_downloaded = function(file_path)
+							-- Komga sync recording
 							local KomgaSync = require("services.komga_sync")
 							local book_id = KomgaSync.getBookId(acquisition.href)
 							if book_id then
@@ -108,6 +109,36 @@ function DownloadDialogBuilder.buildDownloadDialog(browser, item, filename, crea
 									end
 								end
 							end
+
+							-- Series continuation: find the next book in the same series
+							if item.series and item.series_index then
+								local next_idx = item.series_index + 1
+								local next_item = nil
+								for _, candidate in ipairs(browser.item_table or {}) do
+									if candidate.series == item.series
+									   and candidate.series_index == next_idx
+									   and candidate.acquisitions and #candidate.acquisitions > 0 then
+										next_item = candidate
+										break
+									end
+								end
+								if next_item then
+									local series_pending = browser.pending_series or {}
+									series_pending[file_path] = {
+										series        = item.series,
+										current_index = item.series_index,
+										next_title    = next_item.title,
+										next_author   = next_item.author,
+									}
+									browser.pending_series = series_pending
+									if browser._manager then
+										browser._manager.pending_series = series_pending
+										browser._manager.opds_settings:saveSetting("pending_series", series_pending)
+										browser._manager.opds_settings:flush()
+									end
+								end
+							end
+
 							if browser.file_downloaded_callback then
 								browser.file_downloaded_callback(file_path)
 							end

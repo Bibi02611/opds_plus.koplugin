@@ -239,6 +239,20 @@ function OPDSListMenuItem:init()
         })
     end
 
+    -- Reading progress bar
+    if self.entry.reading_percent and self.entry.reading_percent > 0 then
+        local pct = math.floor(self.entry.reading_percent * 100)
+        local filled = math.floor(8 * self.entry.reading_percent)
+        local bar = string.rep("\xe2\x96\xac", filled) .. string.rep("\xe2\x96\xad", 8 - filled)
+        table.insert(text_group, VerticalSpan:new { width = text_padding })
+        table.insert(text_group, TextWidget:new {
+            text = bar .. " " .. pct .. "%",
+            face = Font:getFace(info_font, info_size - 1),
+            max_width = text_width,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+        })
+    end
+
     -- Mandatory info (file format, etc.) if available
     if self.entry.mandatory then
         table.insert(text_group, VerticalSpan:new { width = text_padding })

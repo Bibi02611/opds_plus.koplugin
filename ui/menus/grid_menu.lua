@@ -210,14 +210,21 @@ function OPDSGridCell:init()
     }
     table.insert(text_group, title_container)
 
-    -- Author - with truncation
+    -- Author - with truncation (append reading progress when available)
     if GRID_CONFIG.show_author then
         table.insert(text_group, VerticalSpan:new { width = title_author_gap })
 
         local author_widget
-        if author and author ~= "" then
+        local author_display = author or ""
+        if self.entry.reading_percent and self.entry.reading_percent > 0 then
+            local pct = math.floor(self.entry.reading_percent * 100)
+            local suffix = " · " .. pct .. "%"
+            author_display = author_display ~= "" and (author_display .. suffix) or (pct .. "%")
+        end
+
+        if author_display ~= "" then
             local author_face = Font:getFace(info_font, info_size)
-            local author_text = UIUtils.truncateText(author, author_face, text_width)
+            local author_text = UIUtils.truncateText(author_display, author_face, text_width)
 
             author_widget = TextWidget:new {
                 text = author_text,
