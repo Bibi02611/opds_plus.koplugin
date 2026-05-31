@@ -45,8 +45,15 @@ function FeedFetcher.fetchFeed(item_url, headers_only, username, password)
 		user     = username,
 		password = password,
 	}
-	local code, headers, status = socket.skip(1, http.request(request))
+	local code, headers, status
+	local req_ok, req_err = pcall(function()
+		code, headers, status = socket.skip(1, http.request(request))
+	end)
 	socketutil:reset_timeout()
+	if not req_ok then
+		logger.dbg(string.format("OPDS: fetchFeed network error for `%s`: %s", item_url, req_err))
+		return nil
+	end
 
 	if headers_only then
 		return headers

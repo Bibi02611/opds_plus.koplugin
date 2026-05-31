@@ -21,8 +21,13 @@ function OPDSPSE:getLastPage(remote_url, username, password)
     -- create URL's and reference vars
     local chapter = string.match(remote_url, "chapterId=(%w+)")
     local api_key = string.match(remote_url, "opds/(.+)/image")
-    local progress_url = string.match(remote_url, "(.+)/api").."/api/Reader/get-progress?chapterId="..chapter
-    local auth_url = string.match(remote_url, "(.+)/api").."/api/Plugin/authenticate?apiKey="..api_key.."&pluginName=KOReader-OPDS"
+    local base_url = string.match(remote_url, "(.+)/api")
+    if not chapter or not api_key or not base_url then
+        logger.warn("OPDSPSE:getLastPage: cannot parse Kavita URL:", remote_url)
+        return 0
+    end
+    local progress_url = base_url .. "/api/Reader/get-progress?chapterId=" .. chapter
+    local auth_url = base_url .. "/api/Plugin/authenticate?apiKey=" .. api_key .. "&pluginName=KOReader-OPDS"
 
     -- Do an HTTP POST to get the Bearer Token for authentication of the /api/Reader/get-progress endpoint
     local auth_parsed = url.parse(auth_url)
