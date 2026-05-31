@@ -109,6 +109,10 @@ function OfflinePack.start(cfg)
 			return
 		end
 
+		-- Reset KOReader's inactivity counter on every tick so the built-in
+		-- screensaver / sleep timer never fires during a long archive operation.
+		pcall(function() UIManager:resetTickler() end)
+
 		-- ── Phase 1 : BFS page walk ──────────────────────────────────────────
 		if state.phase == "pages" then
 			local item = table.remove(state.queue, 1)

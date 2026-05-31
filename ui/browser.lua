@@ -182,22 +182,19 @@ function OPDSBrowser:archiveFullCatalog()
         UIManager:forceRePaint()
     end
 
-    -- Wrap in pcall so any unsupported API silently no-ops instead of crashing.
-    local function setWakeLock(enable)
+    -- Device.screen:keepAlive(true) prevents Android from cutting CPU + WiFi.
+    -- UIManager:resetTickler() resets KOReader's own inactivity counter.
+    -- Both are wrapped in pcall so unsupported platforms silently no-op.
+    local function setKeepAlive(enable)
         pcall(function()
             local Device = require("device")
-            if Device:isAndroid() then
-                local android = require("android")
-                if type(android.setWakeLock) == "function" then
-                    android.setWakeLock(enable)
-                end
-            end
+            Device.screen:keepAlive(enable)
         end)
     end
 
     local function startArchive()
         NetworkMgr:runWhenConnected(function()
-            setWakeLock(true)
+            setKeepAlive(true)
             showProgress(_("Analyse du catalogue…"))
 
             cancel_fn = OfflinePack.start {
@@ -216,7 +213,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_done = function(pages, total_covers, new_covers)
-                    setWakeLock(false)
+                    setKeepAlive(false)
                     closeProgress()
                     UIManager:show(InfoMessage:new {
                         text = T(
@@ -227,7 +224,7 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_cancel = function()
-                    setWakeLock(false)
+                    setKeepAlive(false)
                     closeProgress()
                 end,
             }
