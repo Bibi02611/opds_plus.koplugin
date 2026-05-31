@@ -144,25 +144,75 @@ function OPDSBrowser:showCatalogMenu()
     UIManager:show(dialog)
 end
 
--- Pre-download all covers for the current catalog page into the disk cache.
-function OPDSBrowser:saveOfflinePack()
-    local CoverLoader = require("services.cover_loader")
-    local pending = 0
-    for _, entry in ipairs(self.item_table or {}) do
-        if entry.cover_url and not entry.cover_bb then pending = pending + 1 end
+-- Archive the full catalog for offline use:
+-- walks all pages via "next" links, caches XML feeds + all cover thumbnails.
+-- Shows a progress dialog with a Cancel button between each network call.
+function OPDSBrowser:archiveFullCatalog()
+    local catalog_url = self.paths and self.paths[#self.paths] and self.paths[#self.paths].url
+    if not catalog_url then return end
+
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local OfflinePack  = require("services.offline_pack")
+
+    local cancel_fn       = nil
+    local progress_dialog = nil
+
+    local function closeProgress()
+        if progress_dialog then
+            UIManager:close(progress_dialog)
+            progress_dialog = nil
+        end
     end
-    if pending == 0 then
-        UIManager:show(InfoMessage:new {
-            text = _("Toutes les couvertures sont déjà en cache."),
-            timeout = 2,
-        })
-        return
+
+    local function showProgress(text)
+        closeProgress()
+        progress_dialog = ButtonDialog:new {
+            title = text,
+            buttons = { { {
+                text = _("Annuler"),
+                callback = function()
+                    if cancel_fn then cancel_fn() end
+                    closeProgress()
+                end,
+            } } },
+        }
+        UIManager:show(progress_dialog)
+        UIManager:forceRePaint()
     end
-    UIManager:show(InfoMessage:new {
-        text = T(_("Mise en cache de %1 couverture(s) en arrière-plan…"), pending),
-        timeout = 2,
-    })
-    CoverLoader.prefetchAllCovers(self)
+
+    NetworkMgr:runWhenConnected(function()
+        showProgress(_("Analyse du catalogue…"))
+
+        cancel_fn = OfflinePack.start {
+            start_url = catalog_url,
+            username  = self.root_catalog_username,
+            password  = self.root_catalog_password,
+            max_pages = 20,
+
+            on_progress = function(phase, done, total)
+                if phase == "pages" then
+                    showProgress(T(_("Pages : %1  ·  %2 couvertures trouvées…"), done, total))
+                else
+                    -- only repaint every 10 covers to limit e-ink blinks
+                    showProgress(T(_("Couvertures : %1 / %2…"), done, total))
+                end
+            end,
+
+            on_done = function(pages, total_covers, new_covers)
+                closeProgress()
+                UIManager:show(InfoMessage:new {
+                    text = T(
+                        _("Archivage terminé !\n%1 pages  ·  %2 couvertures  (%3 nouvelles)"),
+                        pages, total_covers, new_covers),
+                    timeout = 5,
+                })
+            end,
+
+            on_cancel = function()
+                closeProgress()
+            end,
+        }
+    end)
 end
 
 function OPDSBrowser:genItemTableFromRoot()

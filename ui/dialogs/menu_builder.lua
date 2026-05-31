@@ -242,13 +242,13 @@ function OPDSMenuBuilder.buildCatalogMenu(browser, catalog_url, has_covers)
 		} })
 	end
 
-	-- Offline pack: pre-cache all covers for this catalog page
+	-- Full catalog archive for offline use (walks all pages + downloads all covers)
 	if has_covers then
 		table.insert(buttons, { {
-			text = _("Sauvegarder pour mode avion"),
+			text = _("Archiver pour mode avion"),
 			callback = function()
 				UIManager:close(dialog)
-				browser:saveOfflinePack()
+				browser:archiveFullCatalog()
 			end,
 			align = "left",
 		} })
