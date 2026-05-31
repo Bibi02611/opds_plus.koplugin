@@ -11,11 +11,36 @@
 
 # OPDS Plus - Enhanced OPDS Browser for KOReader
 
-**Version:** 1.2.0
+**Version:** 1.3.0
 
 **OPDS Plus** is a feature-rich enhancement of KOReader's built-in OPDS catalog browser, providing visual book cover displays, multiple viewing modes, and extensive customization options for browsing online book catalogs.
 
 ## ✨ Features
+
+### 📥 Series Download Management *(New in 1.3.0)*
+
+#### Queue All in Series
+- **One-tap bulk download**: tap ≡ in any book-list view → **Queue all in series**
+- Fetches all pages of the current OPDS catalog automatically (pagination followed transparently)
+- **Format picker** when multiple formats are available (CBZ, PDF…); auto-selects if only one
+- Confirmation dialog shows exact book count and destination folder before queuing
+- Path is locked **at queue time** — changing the folder later only affects new additions
+
+#### Smart Folder Organisation
+- **Session base folder** (`Base folder`): choose where downloads go for this session (e.g. `/BD/` vs `/livres/`) without touching KOReader's global download directory
+- **Session subfolder**: a subfolder name applied to every book queued until changed (e.g. `Blacksad`)
+- **Auto-detection** from OPDS metadata in priority order: parent navigation link → `dc:series` field → title prefix → current catalog name
+- Full effective destination displayed in real time: `Base/Subfolder/filename.cbz`
+- **Visible directly** in the book info dialog as a two-button row — no sub-menu needed:
+  - Left button → folder picker for the base directory
+  - Right button → keyboard input for the subfolder name
+- Also accessible from the download queue's ≡ menu
+
+#### Bug Fixes in Download Pipeline
+- **File extension always preserved** from the server: titles containing dots (`Vol.1`, `T.3`, `Tome 1.5`) no longer block the correct extension from being appended — KOReader can now open every downloaded file
+- **Empty folder fixed**: `makeDirectory` is now recursive (creates missing parent directories); the download subprocess recreates the target folder if needed and explicitly validates `io.open` before issuing the HTTP request — no more false-positive "X books downloaded" with an empty folder
+
+---
 
 ### 📚 Enhanced Catalog Browsing
 - **Visual Book Covers**: Browse catalogs with book cover images displayed alongside titles
@@ -329,6 +354,14 @@ See the [LICENSE](LICENSE) file for details.
 
 ## 🔄 Version History
 
+### v1.3.0
+- **Queue all in series**: one-tap bulk download of an entire OPDS catalog (all pages, format picker, confirmation)
+- **Session folder management**: separate base folder and subfolder controls, visible directly in the book info dialog
+- **Auto-detection of series name** from OPDS metadata for automatic subfolder naming
+- **Fix**: file extension now always preserved from the server declaration (titles with dots like `Vol.1` no longer lose their `.cbz`)
+- **Fix**: download to subfolder now reliable — `makeDirectory` is recursive, download subprocess validates file creation before HTTP request
+
+### v1.2.0 and earlier
 See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ---
