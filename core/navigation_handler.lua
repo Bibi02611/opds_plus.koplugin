@@ -151,8 +151,8 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 					end
 
 					-- Special handling for PDF links
-					if link.title == "pdf" or link.type == "application/pdf"
-						and link.rel ~= "subsection" then
+					if link.title == "pdf" or (link.type == "application/pdf"
+						and link.rel ~= "subsection") then
 						local original_href = link.href
 						local parsed = socket_url.parse(original_href)
 						if not parsed then parsed = { path = original_href } end
@@ -212,6 +212,16 @@ function NavigationHandler.genItemTableFromCatalog(catalog, item_url, browser_co
 		item.title = title
 		item.author = author
 		item.content = entry.content or entry.summary
+
+		-- Extract series metadata (Dublin Core and OPDS extensions)
+		local raw_series = entry["dc:series"] or entry["schema:Series"]
+		if type(raw_series) == "table" then raw_series = raw_series[1] end
+		item.series = type(raw_series) == "string" and raw_series ~= "" and raw_series or nil
+
+		local raw_index = entry["dc:seriesIndex"] or entry["schema:Number"]
+		if type(raw_index) == "table" then raw_index = raw_index[1] end
+		item.series_index = raw_index and tonumber(raw_index) or nil
+
 		table.insert(item_table, item)
 	end
 

@@ -35,18 +35,24 @@ function OPDSPSE:getLastPage(remote_url, username, password)
     local auth_code, auth_headers, auth_status
     if auth_parsed.scheme == "http" or auth_parsed.scheme == "https" then
         socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
-        auth_code, auth_headers, auth_status = socket.skip(1, http.request {
-            method = "POST",
-            url         = auth_url,
-            headers     = {
-                ["Accept-Encoding"] = "identity",
-                ["Authentication"] = api_key,
-            },
-            sink        = ltn12.sink.table(auth_data),
-            user        = username,
-            password    = password,
-        })
+        local auth_req_ok, auth_req_err = pcall(function()
+            auth_code, auth_headers, auth_status = socket.skip(1, http.request {
+                method = "POST",
+                url         = auth_url,
+                headers     = {
+                    ["Accept-Encoding"] = "identity",
+                    ["Authentication"] = api_key,
+                },
+                sink        = ltn12.sink.table(auth_data),
+                user        = username,
+                password    = password,
+            })
+        end)
         socketutil:reset_timeout()
+        if not auth_req_ok then
+            logger.warn("OPDSPSE:getLastPage: auth request error:", auth_req_err)
+            return 0
+        end
     else
         UIManager:show(InfoMessage:new {
             text = T(_("Invalid protocol:\n%1"), auth_parsed.scheme),
@@ -56,7 +62,11 @@ function OPDSPSE:getLastPage(remote_url, username, password)
     if auth_code == 200 then
         -- if http request for bearer token was successful, pull bearer token from response and
         -- attempt to pull progress for chapterId in remote_url
-        local bearer_token = auth_data[1]:match("\"token\":\"(.+)\",\"refresh")
+        local bearer_token = auth_data[1] and auth_data[1]:match("\"token\":\"(.+)\",\"refresh")
+        if not bearer_token then
+            logger.warn("OPDSPSE:getLastPage: could not extract bearer token from auth response")
+            return 0
+        end
 
         -- Do HTTP GET request for chapter progress
         local progress_parsed = url.parse(progress_url)
@@ -64,17 +74,23 @@ function OPDSPSE:getLastPage(remote_url, username, password)
         local progress_code, progress_headers, progress_status
         if progress_parsed.scheme == "http" or progress_parsed.scheme == "https" then
             socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
-            progress_code, progress_headers, progress_status = socket.skip(1, http.request {
-                url         = progress_url,
-                headers     = {
-                    ["Accept-Encoding"] = "identity",
-                    ["Authorization"] = "Bearer "..bearer_token,
-                },
-                sink        = ltn12.sink.table(progress_data),
-                user        = username,
-                password    = password,
-            })
+            local prog_req_ok, prog_req_err = pcall(function()
+                progress_code, progress_headers, progress_status = socket.skip(1, http.request {
+                    url         = progress_url,
+                    headers     = {
+                        ["Accept-Encoding"] = "identity",
+                        ["Authorization"] = "Bearer " .. bearer_token,
+                    },
+                    sink        = ltn12.sink.table(progress_data),
+                    user        = username,
+                    password    = password,
+                })
+            end)
             socketutil:reset_timeout()
+            if not prog_req_ok then
+                logger.warn("OPDSPSE:getLastPage: progress request error:", prog_req_err)
+                return 0
+            end
         else
             UIManager:show(InfoMessage:new {
                 text = T(_("Invalid protocol:\n%1"), progress_parsed.scheme),
@@ -83,7 +99,7 @@ function OPDSPSE:getLastPage(remote_url, username, password)
 
         if progress_code == 200 then
             -- if HTTP GET was successful, pull page number from response
-            last_page = progress_data[1]:match("\"pageNum\":(.+),\"seriesId")
+            last_page = progress_data[1] and progress_data[1]:match("\"pageNum\":(.+),\"seriesId") or 0
         else
             logger.dbg("OPDSPSE:getLastPage: Progress Request failed:", progress_status or progress_code)
             logger.dbg("OPDSPSE:getLastPage: Progress Response headers:", progress_headers)
@@ -124,16 +140,22 @@ function OPDSPSE:streamPages(remote_url, count, continue, username, password, la
             local code, headers, status
             if parsed.scheme == "http" or parsed.scheme == "https" then
                 socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
-                code, headers, status = socket.skip(1, http.request {
-                    url         = page_url,
-                    headers     = {
-                        ["Accept-Encoding"] = "identity",
-                    },
-                    sink        = ltn12.sink.table(page_data),
-                    user        = username,
-                    password    = password,
-                })
+                local page_req_ok, page_req_err = pcall(function()
+                    code, headers, status = socket.skip(1, http.request {
+                        url         = page_url,
+                        headers     = {
+                            ["Accept-Encoding"] = "identity",
+                        },
+                        sink        = ltn12.sink.table(page_data),
+                        user        = username,
+                        password    = password,
+                    })
+                end)
                 socketutil:reset_timeout()
+                if not page_req_ok then
+                    logger.warn("OPDSPSE:streamPages: network error:", page_req_err)
+                    return RenderImage:renderImageFile("resources/koreader.png", false)
+                end
             else
                 UIManager:show(InfoMessage:new {
                     text = T(_("Invalid protocol:\n%1"), parsed.scheme),

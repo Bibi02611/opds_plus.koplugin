@@ -148,16 +148,28 @@ function DownloadManager.downloadFile(browser, local_path, remote_url, username,
 		end
 
 		socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, socketutil.FILE_TOTAL_TIMEOUT)
-		code, headers, status = socket.skip(1, http.request {
-			url      = remote_url,
-			headers  = {
-				["Accept-Encoding"] = "identity",
-			},
-			sink     = ltn12.sink.file(file_handle),
-			user     = username,
-			password = password,
-		})
+		local req_ok, req_err = pcall(function()
+			code, headers, status = socket.skip(1, http.request {
+				url      = remote_url,
+				headers  = {
+					["Accept-Encoding"] = "identity",
+				},
+				sink     = ltn12.sink.file(file_handle),
+				user     = username,
+				password = password,
+			})
+		end)
 		socketutil:reset_timeout()
+		if not req_ok then
+			pcall(file_handle.close, file_handle)
+			util.removeFile(local_path)
+			logger.warn("[OPDS Plus] downloadFile: network error:", req_err)
+			UIManager:show(InfoMessage:new {
+				text = T(_("Cannot download file:\n%1\n%2"),
+					BD.filepath(local_path), req_err or ""),
+			})
+			return false
+		end
 	else
 		UIManager:show(InfoMessage:new {
 			text = T(_("Invalid protocol:\n%1"), parsed.scheme),
