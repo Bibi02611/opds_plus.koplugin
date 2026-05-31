@@ -15,7 +15,7 @@ local socket = require("socket")
 local socketutil = require("socketutil")
 local url = require("socket.url")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local N_ = _.ngettext
 local T = require("ffi/util").template
 

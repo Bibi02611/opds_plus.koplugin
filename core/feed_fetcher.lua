@@ -10,7 +10,7 @@ local logger = require("logger")
 local ltn12 = require("ltn12")
 local socket = require("socket")
 local socketutil = require("socketutil")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = require("ffi/util").template
 
 local OPDSParser = require("core.parser")

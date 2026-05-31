@@ -7,7 +7,7 @@ local SpinWidget = require("ui/widget/spinwidget")
 local UIManager = require("ui/uimanager")
 local Constants = require("models.constants")
 local ImageLoader = require("services.image_loader")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = require("ffi/util").template
 
 local SettingsDialogs = {}
@@ -47,7 +47,7 @@ function SettingsDialogs.showCoverSizeMenu(plugin)
 	builder:addSeparator()
 
 	-- Add custom option
-	local custom_button_text = "Custom"
+	local custom_button_text = _("Custom")
 	if current_preset == "Custom" then
 		custom_button_text = "✓ " .. custom_button_text .. " (" .. math.floor(current_ratio * 100) .. "%)"
 	end

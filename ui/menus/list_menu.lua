@@ -18,7 +18,7 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Screen = Device.screen
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local CoverLoader = require("services.cover_loader")
 local Debug = require("utils.debug")

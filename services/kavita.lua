@@ -9,7 +9,7 @@ local socket = require("socket")
 local socketutil = require("socketutil")
 local UIManager = require("ui/uimanager")
 local url = require("socket.url")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = require("ffi/util").template
 
 local OPDSPSE = {}

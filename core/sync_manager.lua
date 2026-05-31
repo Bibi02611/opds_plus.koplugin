@@ -10,7 +10,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local Constants = require("models.constants")
 local DownloadManager = require("core.download_manager")

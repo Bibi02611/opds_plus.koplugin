@@ -7,7 +7,7 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = require("ffi/util").template
 
 -- Import constants

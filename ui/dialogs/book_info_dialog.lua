@@ -30,7 +30,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local logger = require("logger")
 local url = require("socket.url")
 local util = require("util")
-local T_get = require("gettext")
+local T_get = require("utils.locale")
 local Screen = Device.screen
 local T = require("ffi/util").template
 

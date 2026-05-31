@@ -9,7 +9,7 @@ local UIManager = require("ui/uimanager")
 local NetworkMgr = require("ui/network/manager")
 local ffiUtil = require("ffi/util")
 local url = require("socket.url")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = ffiUtil.template
 
 local Constants = require("models.constants")

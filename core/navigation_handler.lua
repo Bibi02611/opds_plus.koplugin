@@ -4,7 +4,7 @@
 local DocumentRegistry = require("document/documentregistry")
 local socket_url = require("socket.url")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 
 local Constants = require("models.constants")
 local UrlUtils = require("utils.url_utils")

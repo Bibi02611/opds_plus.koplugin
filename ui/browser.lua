@@ -8,7 +8,7 @@ local UIManager = require("ui/uimanager")
 local ffiUtil = require("ffi/util")
 local logger = require("logger")
 local util = require("util")
-local _ = require("gettext")
+local _ = require("utils.locale")
 local T = ffiUtil.template
 
 -- Import the custom cover menu for displaying book covers
