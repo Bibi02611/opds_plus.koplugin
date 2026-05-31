@@ -144,14 +144,16 @@ function OPDSBrowser:showCatalogMenu()
     UIManager:show(dialog)
 end
 
--- Archive the full catalog for offline use:
--- walks all pages via "next" links, caches XML feeds + all cover thumbnails.
--- Shows a progress dialog with a Cancel button between each network call.
+-- Archive the full catalog tree for offline use.
+-- BFS walk: follows both "next" pagination and sub-catalog navigation links
+-- up to 2 levels deep, so it works from any catalog level (root, series list,
+-- individual series).  Shows a progress dialog with a Cancel button.
 function OPDSBrowser:archiveFullCatalog()
     local catalog_url = self.paths and self.paths[#self.paths] and self.paths[#self.paths].url
     if not catalog_url then return end
 
     local ButtonDialog = require("ui/widget/buttondialog")
+    local ConfirmBox   = require("ui/widget/confirmbox")
     local OfflinePack  = require("services.offline_pack")
 
     local cancel_fn       = nil
@@ -180,39 +182,48 @@ function OPDSBrowser:archiveFullCatalog()
         UIManager:forceRePaint()
     end
 
-    NetworkMgr:runWhenConnected(function()
-        showProgress(_("Analyse du catalogue…"))
+    local function startArchive()
+        NetworkMgr:runWhenConnected(function()
+            showProgress(_("Analyse du catalogue…"))
 
-        cancel_fn = OfflinePack.start {
-            start_url = catalog_url,
-            username  = self.root_catalog_username,
-            password  = self.root_catalog_password,
-            max_pages = 20,
+            cancel_fn = OfflinePack.start {
+                start_url = catalog_url,
+                username  = self.root_catalog_username,
+                password  = self.root_catalog_password,
+                max_depth = 2,   -- root → sections → series → books with covers
+                max_pages = 200, -- hard cap to prevent runaway on huge libraries
 
-            on_progress = function(phase, done, total)
-                if phase == "pages" then
-                    showProgress(T(_("Pages : %1  ·  %2 couvertures trouvées…"), done, total))
-                else
-                    -- only repaint every 10 covers to limit e-ink blinks
-                    showProgress(T(_("Couvertures : %1 / %2…"), done, total))
-                end
-            end,
+                on_progress = function(phase, done, total)
+                    if phase == "pages" then
+                        showProgress(T(_("Pages : %1  ·  %2 couvertures trouvées…"), done, total))
+                    else
+                        showProgress(T(_("Couvertures : %1 / %2…"), done, total))
+                    end
+                end,
 
-            on_done = function(pages, total_covers, new_covers)
-                closeProgress()
-                UIManager:show(InfoMessage:new {
-                    text = T(
-                        _("Archivage terminé !\n%1 pages  ·  %2 couvertures  (%3 nouvelles)"),
-                        pages, total_covers, new_covers),
-                    timeout = 5,
-                })
-            end,
+                on_done = function(pages, total_covers, new_covers)
+                    closeProgress()
+                    UIManager:show(InfoMessage:new {
+                        text = T(
+                            _("Archivage terminé !\n%1 pages  ·  %2 couvertures  (%3 nouvelles)"),
+                            pages, total_covers, new_covers),
+                        timeout = 5,
+                    })
+                end,
 
-            on_cancel = function()
-                closeProgress()
-            end,
-        }
-    end)
+                on_cancel = function()
+                    closeProgress()
+                end,
+            }
+        end)
+    end
+
+    -- Warn before a potentially long operation
+    UIManager:show(ConfirmBox:new {
+        text = _("Archiver ce catalogue pour le mode avion ?\n\nToutes les pages et couvertures accessibles depuis ce niveau seront mises en cache (jusqu'à 200 pages, 2 niveaux de profondeur).\n\nCela peut prendre plusieurs minutes pour une grande bibliothèque."),
+        ok_text = _("Archiver"),
+        ok_callback = startArchive,
+    })
 end
 
 function OPDSBrowser:genItemTableFromRoot()
