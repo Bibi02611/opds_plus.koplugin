@@ -21,6 +21,15 @@ local UIManager   = require("ui/uimanager")
 local Constants   = require("models.constants")
 local Debug       = require("utils.debug")
 
+-- Acquire / release the screen keep-alive (Android wakelock).
+-- Wrapped in pcall so it silently no-ops on platforms that lack the API.
+local function setKeepAlive(enable)
+	pcall(function()
+		local Device = require("device")
+		Device.screen:keepAlive(enable)
+	end)
+end
+
 local OfflinePack = {}
 
 -- Return the preferred cover URL from a parsed entry (thumbnail preferred).
@@ -89,6 +98,9 @@ function OfflinePack.start(cfg)
 	local max_depth = cfg.max_depth or 2
 	local max_pages = cfg.max_pages or 1000
 
+	-- Hold the screen keep-alive for the full duration of the archive.
+	setKeepAlive(true)
+
 	local state = {
 		-- BFS queue
 		queue       = { { url = cfg.start_url, depth = 0 } },
@@ -105,13 +117,17 @@ function OfflinePack.start(cfg)
 
 	local function tick()
 		if state.cancelled then
+			setKeepAlive(false)
 			if cfg.on_cancel then cfg.on_cancel() end
 			return
 		end
 
-		-- Reset KOReader's inactivity counter on every tick so the built-in
-		-- screensaver / sleep timer never fires during a long archive operation.
+		-- Signal continuous activity to both KOReader and Android:
+		--   resetTickler : resets KOReader's inactivity / screensaver timer
+		--   forceRePaint : produces visible screen activity that Android's Doze
+		--                  mode detects as "app is active" and won't suspend
 		pcall(function() UIManager:resetTickler() end)
+		UIManager:forceRePaint()
 
 		-- ── Phase 1 : BFS page walk ──────────────────────────────────────────
 		if state.phase == "pages" then
@@ -209,6 +225,7 @@ function OfflinePack.start(cfg)
 			end
 
 			if state.cover_idx > total then
+				setKeepAlive(false)
 				Debug.log("OfflinePack:", "done —",
 					state.pages_done, "pages,", total, "covers,",
 					state.covers_new, "newly downloaded")

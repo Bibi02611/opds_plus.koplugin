@@ -182,21 +182,11 @@ function OPDSBrowser:archiveFullCatalog()
         UIManager:forceRePaint()
     end
 
-    -- Device.screen:keepAlive(true) prevents Android from cutting CPU + WiFi.
-    -- UIManager:resetTickler() resets KOReader's own inactivity counter.
-    -- Both are wrapped in pcall so unsupported platforms silently no-op.
-    local function setKeepAlive(enable)
-        pcall(function()
-            local Device = require("device")
-            Device.screen:keepAlive(enable)
-        end)
-    end
-
     local function startArchive()
         NetworkMgr:runWhenConnected(function()
-            setKeepAlive(true)
             showProgress(_("Analyse du catalogue…"))
 
+            -- keepAlive and resetTickler are managed inside OfflinePack.start
             cancel_fn = OfflinePack.start {
                 start_url = catalog_url,
                 username  = self.root_catalog_username,
@@ -213,7 +203,6 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_done = function(pages, total_covers, new_covers)
-                    setKeepAlive(false)
                     closeProgress()
                     UIManager:show(InfoMessage:new {
                         text = T(
@@ -224,7 +213,6 @@ function OPDSBrowser:archiveFullCatalog()
                 end,
 
                 on_cancel = function()
-                    setKeepAlive(false)
                     closeProgress()
                 end,
             }
